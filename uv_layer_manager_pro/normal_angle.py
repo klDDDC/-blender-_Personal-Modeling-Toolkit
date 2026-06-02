@@ -24,7 +24,7 @@ def get_normal_angle_degrees(scene):
 
 
 def _set_modifier_angle(mod, angle_rad, angle_deg):
-    """在法向修改器上设置角度，自动探测正确的属性名和单位。"""
+    """鍦ㄦ硶鍚戜慨鏀瑰櫒涓婅缃搴︼紝鑷姩鎺㈡祴姝ｇ‘鐨勫睘鎬у悕鍜屽崟浣嶃€?""
     candidate_attrs = [
         'angle',
         'input_angle',
@@ -86,7 +86,7 @@ def _set_modifier_angle(mod, angle_rad, angle_deg):
 
 
 def _build_smooth_by_angle_node_group(angle_rad):
-    """加载 Blender 内置 Smooth by Angle 节点组。"""
+    """鍔犺浇 Blender 鍐呯疆 Smooth by Angle 鑺傜偣缁勩€?""
     ng = bpy.data.node_groups.get("Smooth by Angle")
     if ng is not None:
         return ng
@@ -136,30 +136,27 @@ def _set_smooth_by_angle_modifier_inputs(mod, angle_rad):
 
 
 def apply_normal_angle_modifier(obj, angle_degrees):
-    """解锁自定义法线，保留锐边，并添加/更新 Smooth by Angle 修改器。"""
+    """瑙ｉ攣鑷畾涔夋硶绾匡紝淇濈暀閿愯竟锛屽苟娣诲姞/鏇存柊 Smooth by Angle 淇敼鍣ㄣ€?""
     mesh = obj.data
 
-    # 解锁自定义法线，不主动改已有锐边。
-    if hasattr(mesh, "has_custom_normals") and mesh.has_custom_normals:
+    # 瑙ｉ攣鑷畾涔夋硶绾匡紝涓嶄富鍔ㄦ敼宸叉湁閿愯竟銆?    if hasattr(mesh, "has_custom_normals") and mesh.has_custom_normals:
         try:
             mesh.normals_split_custom_set([(0.0, 0.0, 0.0)] * len(mesh.loops))
         except Exception:
             pass
 
-    # 平滑着色：只设置面为 smooth，不写入或清除已有锐边。
-    for poly in mesh.polygons:
+    # 骞虫粦鐫€鑹诧細鍙缃潰涓?smooth锛屼笉鍐欏叆鎴栨竻闄ゅ凡鏈夐攼杈广€?    for poly in mesh.polygons:
         poly.use_smooth = True
 
     angle_rad = math.radians(angle_degrees)
     mod_name = C.NORMAL_ANGLE_MODIFIER_NAME
 
-    # 移旧
+    # 绉绘棫
     old_mod = obj.modifiers.get(mod_name)
     if old_mod is not None:
         obj.modifiers.remove(old_mod)
 
-    # 旧版本兼容：尝试原生 SMOOTH_BY_ANGLE 修改器。
-    try:
+    # 鏃х増鏈吋瀹癸細灏濊瘯鍘熺敓 SMOOTH_BY_ANGLE 淇敼鍣ㄣ€?    try:
         mod = obj.modifiers.new(mod_name, 'SMOOTH_BY_ANGLE')
         if mod is not None:
             _set_modifier_angle(mod, angle_rad, angle_degrees)
@@ -168,8 +165,7 @@ def apply_normal_angle_modifier(obj, angle_degrees):
     except TypeError:
         pass
 
-    # Blender 4.1+：使用内置 Smooth by Angle 节点资产，不修改已有锐边。
-    ng = _build_smooth_by_angle_node_group(angle_rad)
+    # Blender 4.1+锛氫娇鐢ㄥ唴缃?Smooth by Angle 鑺傜偣璧勪骇锛屼笉淇敼宸叉湁閿愯竟銆?    ng = _build_smooth_by_angle_node_group(angle_rad)
     if ng is not None:
         mod = obj.modifiers.new(mod_name, 'NODES')
         mod.node_group = ng
@@ -178,36 +174,10 @@ def apply_normal_angle_modifier(obj, angle_degrees):
         mesh.update()
         return
 
-    # 最后保底：只设面平滑，不写入/修改锐边。
-    for poly in mesh.polygons:
+    # 鏈€鍚庝繚搴曪細鍙闈㈠钩婊戯紝涓嶅啓鍏?淇敼閿愯竟銆?    for poly in mesh.polygons:
         poly.use_smooth = True
     mesh.update()
 
-
-def _set_sharp_edges_by_angle(mesh, angle_rad):
-    """基于面夹角角度，直接设置 mesh.edges 的锐边标志"""
-    edge_face_map = {}
-    edge_key_to_index = {tuple(sorted(edge.vertices)): edge.index for edge in mesh.edges}
-    for poly in mesh.polygons:
-        for local_index, _loop_idx in enumerate(poly.loop_indices):
-            edge_idx = edge_key_to_index.get(tuple(sorted(poly.edge_keys[local_index])))
-            if edge_idx is None:
-                continue
-            if edge_idx not in edge_face_map:
-                edge_face_map[edge_idx] = []
-            edge_face_map[edge_idx].append(poly.index)
-
-    for edge_idx, poly_indices in edge_face_map.items():
-        if len(poly_indices) != 2:
-            continue
-        if edge_idx >= len(mesh.edges):
-            continue
-        n0 = mesh.polygons[poly_indices[0]].normal
-        n1 = mesh.polygons[poly_indices[1]].normal
-        dot = max(-1.0, min(1.0, n0.dot(n1)))
-        angle = math.acos(dot)
-        if angle > angle_rad:
-            mesh.edges[edge_idx].use_edge_sharp = True
 
 
 # ============================================================
@@ -223,27 +193,27 @@ def _set_sharp_edges_by_angle(mesh, angle_rad):
 
 def register_properties():
     bpy.types.Scene.normal_angle_preset = bpy.props.EnumProperty(
-        name="法向角度",
-        description="清理锁定法向后应用的平滑角度",
+        name="娉曞悜瑙掑害",
+        description="娓呯悊閿佸畾娉曞悜鍚庡簲鐢ㄧ殑骞虫粦瑙掑害",
         items=(
-            ('180', "180", "默认：最大程度放松法向角度"),
-            ('30', "30", "硬表面常用锐利角度"),
-            ('60', "60", "中等平滑角度"),
-            ('90', "90", "较宽松的硬边角度"),
-            (C.NORMAL_ANGLE_PRESET_CUSTOM, "自定义", "使用下方滑块指定角度"),
+            ('180', "180", "榛樿锛氭渶澶х▼搴︽斁鏉炬硶鍚戣搴?),
+            ('30', "30", "纭〃闈㈠父鐢ㄩ攼鍒╄搴?),
+            ('60', "60", "涓瓑骞虫粦瑙掑害"),
+            ('90', "90", "杈冨鏉剧殑纭竟瑙掑害"),
+            (C.NORMAL_ANGLE_PRESET_CUSTOM, "鑷畾涔?, "浣跨敤涓嬫柟婊戝潡鎸囧畾瑙掑害"),
         ),
         default='180',
     )
     bpy.types.Scene.normal_angle_custom = bpy.props.FloatProperty(
-        name="自定义法向角度",
-        description="自定义清理后的法向角度",
+        name="鑷畾涔夋硶鍚戣搴?,
+        description="鑷畾涔夋竻鐞嗗悗鐨勬硶鍚戣搴?,
         default=180.0,
         min=0.0,
         max=180.0,
     )
     bpy.types.Scene.uvlm_select_angle_threshold = bpy.props.FloatProperty(
-        name="角度选择阈值",
-        description="角度选择功能的面法向角度阈值（度）",
+        name="瑙掑害閫夋嫨闃堝€?,
+        description="瑙掑害閫夋嫨鍔熻兘鐨勯潰娉曞悜瑙掑害闃堝€硷紙搴︼級",
         default=30.0,
         min=0.0,
         max=180.0,

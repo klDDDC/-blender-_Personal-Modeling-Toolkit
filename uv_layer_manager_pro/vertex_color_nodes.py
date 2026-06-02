@@ -216,7 +216,13 @@ def get_active_color_attribute(mesh):
     try:
         for attr in mesh.attributes:
             if attr.domain == 'CORNER' and attr.data_type == 'FLOAT_COLOR' and attr.active_color_attribute:
-                return attr.name
+                return attr
     except Exception:
         pass
-    return "Col"
+    try:
+        color_attributes = getattr(mesh, "color_attributes", None)
+        if color_attributes is not None:
+            return getattr(color_attributes, "active_color", None) or getattr(color_attributes, "active", None)
+    except Exception:
+        pass
+    return None

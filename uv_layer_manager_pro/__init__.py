@@ -69,6 +69,9 @@ from .ui import (
     UV_LAYER_MANAGER_UL_uv_layers,
     UV_LAYER_MANAGER_UL_material_slots,
     UV_LAYER_MANAGER_PT_panel,
+    UV_LAYER_MANAGER_PT_uv_panel,
+    UV_LAYER_MANAGER_PT_modeling_panel,
+    UV_LAYER_MANAGER_PT_material_panel,
     UV_LAYER_MANAGER_MT_shortcut_menu,
 )
 from .preferences import UV_LAYER_MANAGER_prefs
@@ -119,6 +122,9 @@ classes = (
     UV_LAYER_MANAGER_prefs,
     UV_LAYER_MANAGER_MT_shortcut_menu,
     UV_LAYER_MANAGER_PT_panel,
+    UV_LAYER_MANAGER_PT_uv_panel,
+    UV_LAYER_MANAGER_PT_modeling_panel,
+    UV_LAYER_MANAGER_PT_material_panel,
 )
 
 

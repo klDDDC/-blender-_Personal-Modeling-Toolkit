@@ -42,4 +42,15 @@ class UV_LAYER_MANAGER_prefs(bpy.types.AddonPreferences):
     )
 
     def draw(self, context):
-        return
+        layout = self.layout
+
+        box = layout.box()
+        box.label(text="UV Editor")
+        box.prop(self, "confirm_open")
+        box.prop(self, "auto_merge")
+        box.prop(self, "protect_uv_area")
+
+        box = layout.box()
+        box.label(text="Layout")
+        box.prop(self, "uv_on_left")
+        box.prop(self, "view_split_ratio")

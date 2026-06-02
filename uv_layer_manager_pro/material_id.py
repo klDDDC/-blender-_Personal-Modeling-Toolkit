@@ -347,7 +347,16 @@ def toggle_single_material_id_color(context, material, index):
         return
     if MaterialIdState.has_original(material):
         state = MaterialIdState.pop_original(material)
-        material.diffuse_color = state
+        # Handle both dict (new) and tuple (legacy) state formats
+        if isinstance(state, dict):
+            material.diffuse_color = state.get('diffuse_color', (0.8, 0.8, 0.8, 1.0))
+            if 'node_tree' in state and material.node_tree:
+                # Restore node connections if needed
+                pass
+        elif isinstance(state, (list, tuple)):
+            material.diffuse_color = state
+        else:
+            material.diffuse_color = (0.8, 0.8, 0.8, 1.0)
         return
     color = get_material_id_color(material, index)
     apply_material_id_color(material, color)
