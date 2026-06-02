@@ -2,6 +2,7 @@
 """
 UV Layer Manager - Shared Utility Functions
 """
+from contextlib import contextmanager
 import re
 
 import bpy
@@ -259,16 +260,31 @@ def begin_draw_frame():
     C._draw_cache.clear()
 
 
-def assign_material_to_selected_faces_or_object(context, objects, material):
-    active_object = context.view_layer.objects.active
+@contextmanager
+def temporary_object_mode(context, mode='OBJECT', active_object=None, restore=True):
+    active_object = active_object or context.view_layer.objects.active
     original_mode = active_object.mode if active_object else 'OBJECT'
-    changed_mode = False
+    switched_mode = False
 
-    if active_object and original_mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-        changed_mode = True
+    if active_object and original_mode != mode:
+        context.view_layer.objects.active = active_object
+        bpy.ops.object.mode_set(mode=mode)
+        switched_mode = True
 
     try:
+        yield active_object, original_mode, switched_mode
+    finally:
+        if restore and switched_mode and active_object and active_object.name in bpy.data.objects:
+            context.view_layer.objects.active = active_object
+            try:
+                bpy.ops.object.mode_set(mode=original_mode)
+            except Exception:
+                pass
+
+
+def assign_material_to_selected_faces_or_object(context, objects, material):
+    active_object = context.view_layer.objects.active
+    with temporary_object_mode(context, 'OBJECT', active_object):
         total_faces = 0
         assigned_objects = 0
         selected_faces_by_object = {}
@@ -293,13 +309,6 @@ def assign_material_to_selected_faces_or_object(context, objects, material):
             assigned_objects += 1
 
         return assigned_objects, total_faces
-    finally:
-        if changed_mode and active_object and active_object.name in bpy.data.objects:
-            context.view_layer.objects.active = active_object
-            try:
-                bpy.ops.object.mode_set(mode=original_mode)
-            except Exception:
-                pass
 
 
 def remove_material_from_object(obj, material):

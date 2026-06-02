@@ -12,15 +12,14 @@ from . import merge_vertices as MV
 
 
 # ============================================================
-# 顶点组 Enum — 动态列出选中模型的顶点组
-# 始终包含 scene.close_snap_vertex_group 以防验证失败
+# 椤剁偣缁?Enum 鈥?鍔ㄦ€佸垪鍑洪€変腑妯″瀷鐨勯《鐐圭粍
+# 濮嬬粓鍖呭惈 scene.close_snap_vertex_group 浠ラ槻楠岃瘉澶辫触
 # ============================================================
 
 def _vg_items(self, context):
-    items = [('', "（无）", "")]
+    items = [('', "锛堟棤锛?, "")]
     seen = set()
-    # 始终包含已存储的值，确保 EnumProperty 设值不会验证失败
-    try:
+    # 濮嬬粓鍖呭惈宸插瓨鍌ㄧ殑鍊硷紝纭繚 EnumProperty 璁惧€间笉浼氶獙璇佸け璐?    try:
         stored = getattr(context.scene, "close_snap_vertex_group", "")
         if stored:
             items.append((stored, stored, ""))
@@ -38,13 +37,13 @@ def _vg_items(self, context):
 
 class UV_LAYER_MANAGER_OT_set_close_snap_distance(bpy.types.Operator):
     bl_idname = "uv_layer_manager.set_close_snap_distance"
-    bl_label = "合并相近设置"
-    bl_description = "设置合并相近的距离阈值和顶点组"
+    bl_label = "鍚堝苟鐩歌繎璁剧疆"
+    bl_description = "璁剧疆鍚堝苟鐩歌繎鐨勮窛绂婚槇鍊煎拰椤剁偣缁?
     bl_options = {'REGISTER'}
 
     distance_cm: bpy.props.FloatProperty(
-        name="距离 (cm)",
-        description="顶点在该距离内会被移动到同一位置（厘米）",
+        name="璺濈 (cm)",
+        description="椤剁偣鍦ㄨ璺濈鍐呬細琚Щ鍔ㄥ埌鍚屼竴浣嶇疆锛堝帢绫筹級",
         default=0.1,
         min=0.0,
         precision=2,
@@ -52,8 +51,8 @@ class UV_LAYER_MANAGER_OT_set_close_snap_distance(bpy.types.Operator):
     )
 
     vertex_group: bpy.props.EnumProperty(
-        name="顶点组",
-        description='仅合并该顶点组内的顶点（选"（无）"则不限制）',
+        name="椤剁偣缁?,
+        description='浠呭悎骞惰椤剁偣缁勫唴鐨勯《鐐癸紙閫?锛堟棤锛?鍒欎笉闄愬埗锛?,
         items=_vg_items,
     )
 
@@ -68,8 +67,8 @@ class UV_LAYER_MANAGER_OT_set_close_snap_distance(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self, width=280)
 
     def draw(self, context):
-        self.layout.prop(self, "distance_cm", text="距离")
-        self.layout.prop(self, "vertex_group", text="顶点组")
+        self.layout.prop(self, "distance_cm", text="璺濈")
+        self.layout.prop(self, "vertex_group", text="椤剁偣缁?)
 
     def execute(self, context):
         context.scene.close_snap_distance_cm = self.distance_cm
@@ -79,18 +78,18 @@ class UV_LAYER_MANAGER_OT_set_close_snap_distance(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_set_uv_naming(bpy.types.Operator):
     bl_idname = "uv_layer_manager.set_uv_naming"
-    bl_label = "UV命名设置"
-    bl_description = "自定义UV命名前缀和层数"
+    bl_label = "UV鍛藉悕璁剧疆"
+    bl_description = "鑷畾涔塙V鍛藉悕鍓嶇紑鍜屽眰鏁?
     bl_options = {'REGISTER'}
 
     prefix: bpy.props.StringProperty(
-        name="前缀",
-        description="UV层命名前缀，如 uvmap → uvmap1, uvmap2",
+        name="鍓嶇紑",
+        description="UV灞傚懡鍚嶅墠缂€锛屽 uvmap 鈫?uvmap1, uvmap2",
         default="uvmap",
     )
     count: bpy.props.IntProperty(
-        name="层数",
-        description="保留的UV层数量",
+        name="灞傛暟",
+        description="淇濈暀鐨刄V灞傛暟閲?,
         default=3,
         min=1,
         max=20,
@@ -102,8 +101,8 @@ class UV_LAYER_MANAGER_OT_set_uv_naming(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self, width=240)
 
     def draw(self, context):
-        self.layout.prop(self, "prefix", text="前缀")
-        self.layout.prop(self, "count", text="层数")
+        self.layout.prop(self, "prefix", text="鍓嶇紑")
+        self.layout.prop(self, "count", text="灞傛暟")
 
     def execute(self, context):
         context.scene.uv_naming_prefix = self.prefix
@@ -113,13 +112,13 @@ class UV_LAYER_MANAGER_OT_set_uv_naming(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_set_select_angle(bpy.types.Operator):
     bl_idname = "uv_layer_manager.set_select_angle"
-    bl_label = "角度选择阈值"
-    bl_description = "设置角度选择功能的面法向角度阈值"
+    bl_label = "瑙掑害閫夋嫨闃堝€?
+    bl_description = "璁剧疆瑙掑害閫夋嫨鍔熻兘鐨勯潰娉曞悜瑙掑害闃堝€?
     bl_options = {'REGISTER'}
 
     angle: bpy.props.FloatProperty(
-        name="角度",
-        description="面法向夹角小于或等于该值的面都会被选中",
+        name="瑙掑害",
+        description="闈㈡硶鍚戝す瑙掑皬浜庢垨绛変簬璇ュ€肩殑闈㈤兘浼氳閫変腑",
         default=30.0,
         min=0.0,
         max=180.0,
@@ -131,7 +130,7 @@ class UV_LAYER_MANAGER_OT_set_select_angle(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self, width=240)
 
     def draw(self, context):
-        self.layout.prop(self, "angle", text="角度阈值")
+        self.layout.prop(self, "angle", text="瑙掑害闃堝€?)
 
     def execute(self, context):
         context.scene.uvlm_select_angle_threshold = self.angle
@@ -140,8 +139,8 @@ class UV_LAYER_MANAGER_OT_set_select_angle(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_reset_uv_names(bpy.types.Operator):
     bl_idname = "uv_layer_manager.reset_uv_names"
-    bl_label = "uv命名重置"
-    bl_description = "按自定义前缀和数量重置选中模型的UV命名"
+    bl_label = "uv鍛藉悕閲嶇疆"
+    bl_description = "鎸夎嚜瀹氫箟鍓嶇紑鍜屾暟閲忛噸缃€変腑妯″瀷鐨刄V鍛藉悕"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -151,7 +150,7 @@ class UV_LAYER_MANAGER_OT_reset_uv_names(bpy.types.Operator):
     def execute(self, context):
         objects = U.get_selected_mesh_objects(context)
         if not objects:
-            self.report({'WARNING'}, "请选择至少一个网格模型")
+            self.report({'WARNING'}, "璇烽€夋嫨鑷冲皯涓€涓綉鏍兼ā鍨?)
             return {'CANCELLED'}
 
         prefix = getattr(context.scene, "uv_naming_prefix", "uvmap")
@@ -185,14 +184,14 @@ class UV_LAYER_MANAGER_OT_reset_uv_names(bpy.types.Operator):
             touched_meshes.add(mesh.as_pointer())
             updated_count += 1
 
-        self.report({'INFO'}, f"已重置 {updated_count} 个模型的UV命名（{prefix}1~{count}）")
+        self.report({'INFO'}, f"宸查噸缃?{updated_count} 涓ā鍨嬬殑UV鍛藉悕锛坽prefix}1~{count}锛?)
         return {'FINISHED'}
 
 
 class UV_LAYER_MANAGER_OT_snap_close_vertices(bpy.types.Operator):
     bl_idname = "uv_layer_manager.snap_close_vertices"
-    bl_label = "合并相近"
-    bl_description = "将边界/锐边/选中点/顶点组上的相近顶点移动到同一位置（不含缝合边）"
+    bl_label = "鍚堝苟鐩歌繎"
+    bl_description = "灏嗚竟鐣?閿愯竟/閫変腑鐐?椤剁偣缁勪笂鐨勭浉杩戦《鐐圭Щ鍔ㄥ埌鍚屼竴浣嶇疆锛堜笉鍚紳鍚堣竟锛?
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -202,7 +201,7 @@ class UV_LAYER_MANAGER_OT_snap_close_vertices(bpy.types.Operator):
     def execute(self, context):
         objects = U.get_selected_mesh_objects(context)
         if not objects:
-            self.report({'WARNING'}, "请选择至少一个网格模型")
+            self.report({'WARNING'}, "璇烽€夋嫨鑷冲皯涓€涓綉鏍兼ā鍨?)
             return {'CANCELLED'}
 
         vg_name = getattr(context.scene, "close_snap_vertex_group", "") or None
@@ -223,7 +222,7 @@ class UV_LAYER_MANAGER_OT_snap_close_vertices(bpy.types.Operator):
         distance_cm = getattr(context.scene, "close_snap_distance_cm", 0.1)
         distance_bu = distance_cm * 0.01
         if distance_bu <= 0.0:
-            self.report({'WARNING'}, "合并相近距离必须大于0")
+            self.report({'WARNING'}, "鍚堝苟鐩歌繎璺濈蹇呴』澶т簬0")
             return {'CANCELLED'}
 
         try:
@@ -238,7 +237,7 @@ class UV_LAYER_MANAGER_OT_snap_close_vertices(bpy.types.Operator):
 
             self.report(
                 {'INFO'},
-                f"合并相近完成：{touched} 个模型，{vertices} 个顶点，{groups} 组",
+                f"鍚堝苟鐩歌繎瀹屾垚锛歿touched} 涓ā鍨嬶紝{vertices} 涓《鐐癸紝{groups} 缁?,
             )
             return {'FINISHED'}
         finally:
@@ -253,32 +252,32 @@ class UV_LAYER_MANAGER_OT_snap_close_vertices(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_rotate_linked_duplicate(bpy.types.Operator):
     bl_idname = "uv_layer_manager.rotate_linked_duplicate"
-    bl_label = "旋转复制"
-    bl_description = "关联复制选中模型，并按指定轴向和总角度依次旋转"
+    bl_label = "鏃嬭浆澶嶅埗"
+    bl_description = "鍏宠仈澶嶅埗閫変腑妯″瀷锛屽苟鎸夋寚瀹氳酱鍚戝拰鎬昏搴︿緷娆℃棆杞?
     bl_options = {'REGISTER', 'UNDO'}
 
     axis: bpy.props.EnumProperty(
-        name="轴向",
-        description="复制对象旋转使用的轴向",
+        name="杞村悜",
+        description="澶嶅埗瀵硅薄鏃嬭浆浣跨敤鐨勮酱鍚?,
         items=(
-            ('X', "X", "绕X轴旋转"),
-            ('Y', "Y", "绕Y轴旋转"),
-            ('Z', "Z", "绕Z轴旋转"),
+            ('X', "X", "缁昘杞存棆杞?),
+            ('Y', "Y", "缁昚杞存棆杞?),
+            ('Z', "Z", "缁昛杞存棆杞?),
         ),
         default='Z',
     )
 
     count: bpy.props.IntProperty(
-        name="复制数量",
-        description="为每个选中模型创建多少个关联复制对象",
+        name="澶嶅埗鏁伴噺",
+        description="涓烘瘡涓€変腑妯″瀷鍒涘缓澶氬皯涓叧鑱斿鍒跺璞?,
         default=10,
         min=1,
         soft_max=360,
     )
 
     total_angle: bpy.props.FloatProperty(
-        name="旋转角度",
-        description="最后一个复制对象相对原模型的旋转角度，单位为度",
+        name="鏃嬭浆瑙掑害",
+        description="鏈€鍚庝竴涓鍒跺璞＄浉瀵瑰師妯″瀷鐨勬棆杞搴︼紝鍗曚綅涓哄害",
         default=360.0,
         soft_min=-3600.0,
         soft_max=3600.0,
@@ -291,7 +290,7 @@ class UV_LAYER_MANAGER_OT_rotate_linked_duplicate(bpy.types.Operator):
     def execute(self, context):
         source_objects = U.get_selected_mesh_objects(context)
         if not source_objects:
-            self.report({'WARNING'}, "请选择至少一个网格模型")
+            self.report({'WARNING'}, "璇烽€夋嫨鑷冲皯涓€涓綉鏍兼ā鍨?)
             return {'CANCELLED'}
 
         is_closed_rotation = abs(self.total_angle) > 0.0 and math.isclose(
@@ -325,14 +324,14 @@ class UV_LAYER_MANAGER_OT_rotate_linked_duplicate(bpy.types.Operator):
         if created_objects:
             context.view_layer.objects.active = created_objects[-1]
 
-        self.report({'INFO'}, f"已旋转复制 {len(created_objects)} 个关联模型")
+        self.report({'INFO'}, f"宸叉棆杞鍒?{len(created_objects)} 涓叧鑱旀ā鍨?)
         return {'FINISHED'}
 
 
 class UV_LAYER_MANAGER_OT_select_ngons(bpy.types.Operator):
     bl_idname = "uv_layer_manager.select_ngons"
-    bl_label = "大于4边面"
-    bl_description = "选中所选模型中顶点数大于4的面"
+    bl_label = "澶т簬4杈归潰"
+    bl_description = "閫変腑鎵€閫夋ā鍨嬩腑椤剁偣鏁板ぇ浜?鐨勯潰"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -341,44 +340,37 @@ class UV_LAYER_MANAGER_OT_select_ngons(bpy.types.Operator):
 
     def execute(self, context):
         active_object = context.view_layer.objects.active
-        original_mode = active_object.mode if active_object else 'OBJECT'
-        switched_mode = False
 
         try:
-            if active_object and original_mode != 'EDIT':
-                bpy.ops.object.mode_set(mode='EDIT')
-                switched_mode = True
+            with U.temporary_object_mode(context, 'EDIT', active_object):
+                bpy.ops.mesh.select_all(action='DESELECT')
 
-            bpy.ops.mesh.select_all(action='DESELECT')
+                for obj in context.objects_in_mode_unique_data:
+                    if obj.type != 'MESH':
+                        continue
+                    bm = bmesh.from_edit_mesh(obj.data)
+                    for face in bm.faces:
+                        if len(face.verts) > 4:
+                            face.select = True
+                    bmesh.update_edit_mesh(obj.data)
 
-            for obj in context.objects_in_mode_unique_data:
-                if obj.type != 'MESH':
-                    continue
-                bm = bmesh.from_edit_mesh(obj.data)
-                for face in bm.faces:
-                    if len(face.verts) > 4:
-                        face.select = True
-                bmesh.update_edit_mesh(obj.data)
-
-            ngon_count = sum(
-                1 for obj in context.objects_in_mode_unique_data
-                if obj.type == 'MESH'
-                for face in bmesh.from_edit_mesh(obj.data).faces
-                if face.select
-            )
-            if switched_mode and active_object and active_object.name in bpy.data.objects:
-                bpy.ops.object.mode_set(mode=original_mode)
-            self.report({'INFO'}, f"已选中 {ngon_count} 个大于4边的面")
+                ngon_count = sum(
+                    1 for obj in context.objects_in_mode_unique_data
+                    if obj.type == 'MESH'
+                    for face in bmesh.from_edit_mesh(obj.data).faces
+                    if face.select
+                )
+            self.report({'INFO'}, f"宸查€変腑 {ngon_count} 涓ぇ浜?杈圭殑闈?)
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"选择失败: {str(e)}")
+            self.report({'ERROR'}, f"閫夋嫨澶辫触: {str(e)}")
             return {'CANCELLED'}
 
 
 class UV_LAYER_MANAGER_OT_quadify_ngons(bpy.types.Operator):
     bl_idname = "uv_layer_manager.quadify_ngons"
-    bl_label = "处理多边面"
-    bl_description = "将选中模型中大于4边的面尽量转换为四边面"
+    bl_label = "澶勭悊澶氳竟闈?
+    bl_description = "灏嗛€変腑妯″瀷涓ぇ浜?杈圭殑闈㈠敖閲忚浆鎹负鍥涜竟闈?
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -388,7 +380,7 @@ class UV_LAYER_MANAGER_OT_quadify_ngons(bpy.types.Operator):
     def execute(self, context):
         objects = U.get_selected_mesh_objects(context)
         if not objects:
-            self.report({'WARNING'}, "请选择至少一个网格模型")
+            self.report({'WARNING'}, "璇烽€夋嫨鑷冲皯涓€涓綉鏍兼ā鍨?)
             return {'CANCELLED'}
 
         active_object = context.view_layer.objects.active
@@ -451,17 +443,17 @@ class UV_LAYER_MANAGER_OT_quadify_ngons(bpy.types.Operator):
                 processed_meshes += 1
 
             if original_ngons == 0:
-                self.report({'INFO'}, "未发现大于4边面")
+                self.report({'INFO'}, "鏈彂鐜板ぇ浜?杈归潰")
             elif remaining_ngons:
                 self.report(
                     {'INFO'},
-                    f"已处理 {original_ngons} 个多边面，仍剩 {remaining_ngons} 个大于4边面",
+                    f"宸插鐞?{original_ngons} 涓杈归潰锛屼粛鍓?{remaining_ngons} 涓ぇ浜?杈归潰",
                 )
             else:
-                self.report({'INFO'}, f"已处理 {original_ngons} 个多边面，生成 {created_quads} 个四边面")
+                self.report({'INFO'}, f"宸插鐞?{original_ngons} 涓杈归潰锛岀敓鎴?{created_quads} 涓洓杈归潰")
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"处理多边面失败: {str(e)}")
+            self.report({'ERROR'}, f"澶勭悊澶氳竟闈㈠け璐? {str(e)}")
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
@@ -477,13 +469,13 @@ class UV_LAYER_MANAGER_OT_quadify_ngons(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_select_overlapping_faces(bpy.types.Operator):
     bl_idname = "uv_layer_manager.select_overlapping_faces"
-    bl_label = "检查重叠面"
-    bl_description = "保留每组重叠面中的一个正常面，只选中多余的重复/错误面"
+    bl_label = "妫€鏌ラ噸鍙犻潰"
+    bl_description = "淇濈暀姣忕粍閲嶅彔闈腑鐨勪竴涓甯搁潰锛屽彧閫変腑澶氫綑鐨勯噸澶?閿欒闈?
     bl_options = {'REGISTER', 'UNDO'}
 
     tolerance: bpy.props.FloatProperty(
-        name="位置容差",
-        description="顶点位置在该距离内会被视为重合",
+        name="浣嶇疆瀹瑰樊",
+        description="椤剁偣浣嶇疆鍦ㄨ璺濈鍐呬細琚涓洪噸鍚?,
         default=0.00001,
         min=0.0,
         precision=6,
@@ -517,7 +509,7 @@ class UV_LAYER_MANAGER_OT_select_overlapping_faces(bpy.types.Operator):
 
         def score_polygon(polygon_index):
             polygon = mesh.polygons[polygon_index]
-            # 1) 有效邻居数：错误重叠面周围没有面，正确面连着模型
+            # 1) 鏈夋晥閭诲眳鏁帮細閿欒閲嶅彔闈㈠懆鍥存病鏈夐潰锛屾纭潰杩炵潃妯″瀷
             ncount = 0
             nscore = 0.0
             for edge_key in polygon.edge_keys:
@@ -526,16 +518,15 @@ class UV_LAYER_MANAGER_OT_select_overlapping_faces(bpy.types.Operator):
                         continue
                     ncount += 1
                     nscore += max(-1.0, min(1.0, polygon.normal.dot(mesh.polygons[ni].normal)))
-            # 2) 面积：同邻居数时面积更大的更可能是正常面
-            # 3) 法向一致性兜底
-            return (ncount, polygon.area, nscore, -polygon_index)
+            # 2) 闈㈢Н锛氬悓閭诲眳鏁版椂闈㈢Н鏇村ぇ鐨勬洿鍙兘鏄甯搁潰
+            # 3) 娉曞悜涓€鑷存€у厹搴?            return (ncount, polygon.area, nscore, -polygon_index)
 
         return max(indices, key=score_polygon)
 
     def execute(self, context):
         objects = U.get_selected_mesh_objects(context)
         if not objects:
-            self.report({'WARNING'}, "请选择至少一个网格模型")
+            self.report({'WARNING'}, "璇烽€夋嫨鑷冲皯涓€涓綉鏍兼ā鍨?)
             return {'CANCELLED'}
 
         active_object = context.view_layer.objects.active
@@ -601,12 +592,12 @@ class UV_LAYER_MANAGER_OT_select_overlapping_faces(bpy.types.Operator):
                             bmesh.update_edit_mesh(obj.data)
                     except Exception:
                         pass
-                self.report({'INFO'}, f"已选中 {overlap_faces} 个重复面，保留 {kept_faces} 个正常面（{overlap_groups} 组）")
+                self.report({'INFO'}, f"宸查€変腑 {overlap_faces} 涓噸澶嶉潰锛屼繚鐣?{kept_faces} 涓甯搁潰锛坽overlap_groups} 缁勶級")
             else:
-                self.report({'INFO'}, f"已检查 {processed_meshes} 个模型，未发现重叠面")
+                self.report({'INFO'}, f"宸叉鏌?{processed_meshes} 涓ā鍨嬶紝鏈彂鐜伴噸鍙犻潰")
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"检查重叠面失败: {str(e)}")
+            self.report({'ERROR'}, f"妫€鏌ラ噸鍙犻潰澶辫触: {str(e)}")
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
@@ -622,8 +613,8 @@ class UV_LAYER_MANAGER_OT_select_overlapping_faces(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_select_by_angle(bpy.types.Operator):
     bl_idname = "uv_layer_manager.select_by_angle"
-    bl_label = "角度选择"
-    bl_description = "基于当前选中面的法向角度选择相邻面"
+    bl_label = "瑙掑害閫夋嫨"
+    bl_description = "鍩轰簬褰撳墠閫変腑闈㈢殑娉曞悜瑙掑害閫夋嫨鐩搁偦闈?
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -646,7 +637,7 @@ class UV_LAYER_MANAGER_OT_select_by_angle(bpy.types.Operator):
         # Seeds = already selected faces
         seeds = [face for face in bm.faces if face.select]
         if not seeds:
-            self.report({'WARNING'}, "请先选中至少一个参考面")
+            self.report({'WARNING'}, "璇峰厛閫変腑鑷冲皯涓€涓弬鑰冮潰")
             return {'CANCELLED'}
 
         reference_normal = seeds[0].normal.copy()
@@ -668,7 +659,7 @@ class UV_LAYER_MANAGER_OT_select_by_angle(bpy.types.Operator):
 
         bmesh.update_edit_mesh(obj.data)
         new_count = count - len(seeds)
-        self.report({'INFO'}, f"角度扩散选中 {new_count} 个相邻面（共 {count} 个面）")
+        self.report({'INFO'}, f"瑙掑害鎵╂暎閫変腑 {new_count} 涓浉閭婚潰锛堝叡 {count} 涓潰锛?)
         return {'FINISHED'}
 
 
@@ -678,8 +669,8 @@ class UV_LAYER_MANAGER_OT_select_by_angle(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_clean_normals(bpy.types.Operator):
     bl_idname = "uv_layer_manager.clean_normals"
-    bl_label = "清理法向"
-    bl_description = "解锁选中模型法向，添加 Smooth by Angle 修改器（保留已有锐边）"
+    bl_label = "娓呯悊娉曞悜"
+    bl_description = "瑙ｉ攣閫変腑妯″瀷娉曞悜锛屾坊鍔?Smooth by Angle 淇敼鍣紙淇濈暀宸叉湁閿愯竟锛?
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -689,7 +680,7 @@ class UV_LAYER_MANAGER_OT_clean_normals(bpy.types.Operator):
     def execute(self, context):
         objects = U.get_selected_mesh_objects(context)
         if not objects:
-            self.report({'WARNING'}, "请选择至少一个网格模型")
+            self.report({'WARNING'}, "璇烽€夋嫨鑷冲皯涓€涓綉鏍兼ā鍨?)
             return {'CANCELLED'}
 
         angle_degrees = NA.get_normal_angle_degrees(context.scene)
@@ -715,10 +706,10 @@ class UV_LAYER_MANAGER_OT_clean_normals(bpy.types.Operator):
                 touched_meshes.add(mesh.as_pointer())
                 NA.apply_normal_angle_modifier(obj, angle_degrees)
 
-            self.report({'INFO'}, f"已解锁 {len(objects)} 个模型法向，添加 Smooth by Angle 修改器（{angle_degrees:g}°）")
+            self.report({'INFO'}, f"宸茶В閿?{len(objects)} 涓ā鍨嬫硶鍚戯紝娣诲姞 Smooth by Angle 淇敼鍣紙{angle_degrees:g}掳锛?)
             return {'FINISHED'}
         except Exception as e:
-            self.report({'ERROR'}, f"清理法向失败: {str(e)}")
+            self.report({'ERROR'}, f"娓呯悊娉曞悜澶辫触: {str(e)}")
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
@@ -738,8 +729,8 @@ class UV_LAYER_MANAGER_OT_clean_normals(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_set_normal_angle(bpy.types.Operator):
     bl_idname = "uv_layer_manager.set_normal_angle"
-    bl_label = "设置法向角度"
-    bl_description = "解锁选中模型法向，添加 Smooth by Angle 法向修改器（保留已有锐边）"
+    bl_label = "璁剧疆娉曞悜瑙掑害"
+    bl_description = "瑙ｉ攣閫変腑妯″瀷娉曞悜锛屾坊鍔?Smooth by Angle 娉曞悜淇敼鍣紙淇濈暀宸叉湁閿愯竟锛?
     bl_options = {'REGISTER', 'UNDO'}
 
     preset: bpy.props.StringProperty()
@@ -747,7 +738,7 @@ class UV_LAYER_MANAGER_OT_set_normal_angle(bpy.types.Operator):
     def execute(self, context):
         valid_presets = {'180', '30', '60', '90', C.NORMAL_ANGLE_PRESET_CUSTOM}
         if self.preset not in valid_presets:
-            self.report({'WARNING'}, "无效的法向角度预设")
+            self.report({'WARNING'}, "鏃犳晥鐨勬硶鍚戣搴﹂璁?)
             return {'CANCELLED'}
         context.scene.normal_angle_preset = self.preset
         return bpy.ops.uv_layer_manager.clean_normals()
