@@ -65,6 +65,12 @@ from .view_ops import (
     UV_LAYER_MANAGER_OT_toggle_uv_editor,
     UV_LAYER_MANAGER_OT_toggle_shader_editor,
 )
+from .flatten_ops import (
+    UV_LAYER_MANAGER_OT_flatten_u,
+    UV_LAYER_MANAGER_OT_flatten_v,
+    UV_LAYER_MANAGER_OT_pin_verts,
+    UV_LAYER_MANAGER_OT_unpin_verts,
+)
 from .ui import (
     UV_LAYER_MANAGER_UL_uv_layers,
     UV_LAYER_MANAGER_UL_material_slots,
@@ -117,6 +123,10 @@ classes = (
     UV_LAYER_MANAGER_OT_set_color_attribute,
     UV_LAYER_MANAGER_OT_toggle_uv_editor,
     UV_LAYER_MANAGER_OT_toggle_shader_editor,
+    UV_LAYER_MANAGER_OT_flatten_u,
+    UV_LAYER_MANAGER_OT_flatten_v,
+    UV_LAYER_MANAGER_OT_pin_verts,
+    UV_LAYER_MANAGER_OT_unpin_verts,
     UV_LAYER_MANAGER_UL_uv_layers,
     UV_LAYER_MANAGER_UL_material_slots,
     UV_LAYER_MANAGER_prefs,

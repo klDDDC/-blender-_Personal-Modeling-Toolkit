@@ -258,6 +258,17 @@ def draw_uv_section(layout, context, obj, mesh):
     if scene_max_count == 0:
         col_sel_max.enabled = False
 
+    col.separator()
+    row = col.row(align=True)
+    row.scale_y = 1.2
+    row.operator("uv_layer_manager.flatten_u", text="打平U", icon='ALIGN_CENTER')
+    row.operator("uv_layer_manager.flatten_v", text="打平V", icon='ALIGN_MIDDLE')
+
+    row = col.row(align=True)
+    row.scale_y = 1.2
+    row.operator("uv_layer_manager.pin_verts", text="固定顶点", icon='PINNED')
+    row.operator("uv_layer_manager.unpin_verts", text="取消固定", icon='UNPINNED')
+
 
 def draw_modeling_tools_section(layout, context):
     try:
