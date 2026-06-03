@@ -599,10 +599,6 @@ class UV_LAYER_MANAGER_PT_panel(bpy.types.Panel):
         layout.operator_context = 'INVOKE_DEFAULT'
         try:
             draw_layout_section(layout, context)
-            obj, mesh = U.get_active_mesh(context)
-            draw_uv_section(layout, context, obj, mesh)
-            draw_modeling_tools_section(layout, context)
-            draw_material_management_section(layout, context)
             draw_shortcut_section(layout, context)
         except Exception as e:
             layout.label(text=f"绘制错误: {e}", icon='ERROR')
