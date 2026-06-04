@@ -196,12 +196,8 @@ def draw_uv_section(layout, context, obj, mesh):
         row_edit.enabled = False
         row_edit.operator("uv_layer_manager.add", text="+ 添加", icon='ADD')
         row_edit.operator("uv_layer_manager.delete", text="- 删除", icon='REMOVE')
-
-        row_tools = col.row(align=True)
-        row_tools.scale_y = 1.15
-        row_tools.enabled = False
-        row_tools.operator("uv_layer_manager.sync", text="同步 UV", icon='PASTEDOWN')
-        row_tools.operator("uv_layer_manager.select_max", text="选中最大模型", icon='OBJECT_DATA')
+        row_edit.operator("uv_layer_manager.sync", text="同步 UV", icon='PASTEDOWN')
+        row_edit.operator("uv_layer_manager.select_max", text="选中最大模型", icon='OBJECT_DATA')
         return
 
     uv_layers = mesh.uv_layers
@@ -230,12 +226,12 @@ def draw_uv_section(layout, context, obj, mesh):
     row_edit = col.row(align=True)
     row_edit.scale_y = 1.2
 
-    col_add = row_edit.column()
+    col_add = row_edit.column(align=True)
     col_add.operator("uv_layer_manager.add", text="+ 添加", icon='ADD')
     if uv_count >= C.MAX_UV_LAYERS:
         col_add.enabled = False
 
-    col_del = row_edit.column()
+    col_del = row_edit.column(align=True)
     col_del.operator("uv_layer_manager.delete", text="- 删除", icon='REMOVE')
     if uv_count <= 1:
         col_del.enabled = False
@@ -245,29 +241,17 @@ def draw_uv_section(layout, context, obj, mesh):
         row_warn.alert = True
         row_warn.label(text=f"已达上限（{C.MAX_UV_LAYERS}）", icon='ERROR')
 
-    row_tools = col.row(align=True)
-    row_tools.scale_y = 1.15
-
-    col_sync = row_tools.column()
+    col_sync = row_edit.column(align=True)
     col_sync.operator("uv_layer_manager.sync", text="同步 UV", icon='PASTEDOWN')
     if not CB.UVClipboard.has_data():
         col_sync.enabled = False
 
-    col_sel_max = row_tools.column()
+    col_sel_max = row_edit.column(align=True)
     col_sel_max.operator("uv_layer_manager.select_max", text="选中最大模型", icon='OBJECT_DATA')
     if scene_max_count == 0:
         col_sel_max.enabled = False
 
     col.separator()
-    row = col.row(align=True)
-    row.scale_y = 1.2
-    row.operator("uv_layer_manager.flatten_u", text="打平U", icon='ALIGN_CENTER')
-    row.operator("uv_layer_manager.flatten_v", text="打平V", icon='ALIGN_MIDDLE')
-
-    row = col.row(align=True)
-    row.scale_y = 1.2
-    row.operator("uv_layer_manager.pin_verts", text="固定顶点", icon='PINNED')
-    row.operator("uv_layer_manager.unpin_verts", text="取消固定", icon='UNPINNED')
 
 
 def draw_modeling_tools_section(layout, context):
@@ -282,29 +266,26 @@ def draw_modeling_tools_section(layout, context):
 
         col = box.column(align=True)
 
-        action_row = col.row(align=True)
-        action_row.scale_y = 1.25
-        action_main = action_row.row(align=True)
-        action_main.operator("uv_layer_manager.reset_uv_names", text="uv命名重置", icon='UV')
-        action_settings = action_row.row(align=True)
-        action_settings.operator("uv_layer_manager.set_uv_naming", text="", icon='PREFERENCES')
+        # ── UV/网格工具 ──
+        # 第一行：uv命名重置 + 合并相近
+        row1 = col.row(align=True)
+        row1.scale_y = 1.25
+        main1 = row1.row(align=True)
+        main1.operator("uv_layer_manager.reset_uv_names", text="uv命名重置", icon='UV')
+        main1.operator("uv_layer_manager.set_uv_naming", text="", icon='PREFERENCES')
+        main2 = row1.row(align=True)
+        main2.operator("uv_layer_manager.snap_close_vertices", text="合并相近", icon='AUTOMERGE_OFF')
+        main2.operator("uv_layer_manager.set_close_snap_distance", text="", icon='PREFERENCES')
         if selected_mesh_count == 0:
-            action_main.enabled = False
+            row1.enabled = False
 
-        close_row = col.row(align=True)
-        close_row.scale_y = 1.25
-        close_main = close_row.row(align=True)
-        close_main.operator("uv_layer_manager.snap_close_vertices", text="合并相近", icon='AUTOMERGE_OFF')
-        close_settings = close_row.row(align=True)
-        close_settings.operator("uv_layer_manager.set_close_snap_distance", text="", icon='PREFERENCES')
+        # 第二行：旋转复制 + 检查重叠面
+        row2 = col.row(align=True)
+        row2.scale_y = 1.25
+        row2.operator("uv_layer_manager.rotate_linked_duplicate", text="旋转复制", icon='DUPLICATE')
+        row2.operator("uv_layer_manager.select_overlapping_faces", text="检查重叠面", icon='FACESEL')
         if selected_mesh_count == 0:
-            close_main.enabled = False
-
-        rotate_row = col.row(align=True)
-        rotate_row.scale_y = 1.25
-        rotate_row.operator("uv_layer_manager.rotate_linked_duplicate", text="旋转复制", icon='DUPLICATE')
-        if selected_mesh_count == 0:
-            rotate_row.enabled = False
+            row2.enabled = False
 
         col.separator()
 
@@ -315,12 +296,6 @@ def draw_modeling_tools_section(layout, context):
         if selected_mesh_count == 0:
             ngon_row.enabled = False
 
-        overlap_row = col.row(align=True)
-        overlap_row.scale_y = 1.25
-        overlap_row.operator("uv_layer_manager.select_overlapping_faces", text="检查重叠面", icon='FACESEL')
-        if selected_mesh_count == 0:
-            overlap_row.enabled = False
-
         angle_row = col.row(align=True)
         angle_row.scale_y = 1.25
         angle_main = angle_row.row(align=True)
@@ -330,6 +305,62 @@ def draw_modeling_tools_section(layout, context):
         angle_settings.operator("uv_layer_manager.set_select_angle", text=f"{angle_threshold:g}°", icon='PREFERENCES')
         if selected_mesh_count == 0:
             angle_main.enabled = False
+
+        col.separator()
+
+        # ── 法线角度预设 ──
+        # 第一行：180/30/60/90
+        normal_row = col.row(align=True)
+        normal_row.scale_y = 1.18
+        normal_row.label(text="法线角度:", icon='ORIENTATION_NORMAL')
+        for preset, label in (
+            ('180', "180"),
+            ('30', "30"),
+            ('60', "60"),
+            ('90', "90"),
+        ):
+            op = normal_row.operator(
+                "uv_layer_manager.set_normal_angle",
+                text=label,
+                depress=scene.normal_angle_preset == preset,
+            )
+            op.preset = preset
+
+        # 第二行：自定义 + 解锁法线
+        custom_row = col.row(align=True)
+        custom_row.scale_y = 1.18
+        custom_row.label(text="", icon='BLANK1')  # 占位对齐
+        custom_row.prop(scene, "normal_angle_custom", text="")
+        op_custom = custom_row.operator(
+            "uv_layer_manager.set_normal_angle",
+            text="自定义",
+            depress=scene.normal_angle_preset == C.NORMAL_ANGLE_PRESET_CUSTOM,
+        )
+        op_custom.preset = C.NORMAL_ANGLE_PRESET_CUSTOM
+        custom_row.operator("uv_layer_manager.unlock_normals", text="解锁法线", icon='NORMALS_FACE')
+        if selected_mesh_count == 0:
+            normal_row.enabled = False
+            custom_row.enabled = False
+
+        col.separator()
+
+        # ── 压平法线 ──
+        flatten_row = col.row(align=True)
+        flatten_row.scale_y = 1.2
+        flatten_row.operator("uv_layer_manager.flatten_by_normal", text="压平法线", icon='MOD_LATTICE')
+        if selected_mesh_count == 0:
+            flatten_row.enabled = False
+
+        col.separator()
+
+        # ── 顶点固定 ──
+        pin_row = col.row(align=True)
+        pin_row.scale_y = 1.2
+        pin_row.operator("uv_layer_manager.pin_verts_modeling", text="固定顶点", icon='PINNED')
+        pin_row.operator("uv_layer_manager.unpin_verts_modeling", text="取消固定", icon='UNPINNED')
+        pin_row.operator("uv_layer_manager.clear_pinned_verts", text="清除固定", icon='X')
+        if selected_mesh_count == 0:
+            pin_row.enabled = False
 
         return
     except Exception as e:
@@ -434,22 +465,20 @@ def draw_material_management_section(layout, context):
         )
         op_id.mode = 'ID'
 
-        col.separator()
-
-        view_row = col.row(align=True)
-        view_row.scale_y = 1.15
-        op_color = view_row.operator(
+        op_color = compact_row.operator(
             "uv_layer_manager.toggle_vertex_color_view",
             text="顶点颜色",
             icon='GROUP_VCOL',
         )
         op_color.mode = 'COLOR'
-        op_alpha = view_row.operator(
+        op_alpha = compact_row.operator(
             "uv_layer_manager.toggle_vertex_color_view",
             text="顶点alpha",
             icon='IMAGE_ALPHA',
         )
         op_alpha.mode = 'ALPHA'
+
+        col.separator()
 
         if active_obj and hasattr(active_obj.data, "color_attributes"):
             active_attribute = VCN.get_active_color_attribute(active_obj.data)
@@ -555,36 +584,6 @@ def draw_layout_section(layout, context):
         elif shader_active:
             status_row = col.row(align=True)
             status_row.label(text="检测到现有着色器编辑器", icon='INFO')
-
-        col.separator()
-
-        normal_row = col.row(align=True)
-        normal_row.scale_y = 1.18
-        for preset, label in (
-            ('180', "180"),
-            ('30', "30"),
-            ('60', "60"),
-            ('90', "90"),
-        ):
-            op = normal_row.operator(
-                "uv_layer_manager.set_normal_angle",
-                text=label,
-                depress=scene.normal_angle_preset == preset,
-            )
-            op.preset = preset
-
-        custom_row = col.row(align=True)
-        custom_row.prop(scene, "normal_angle_custom", text="")
-        op_custom = custom_row.operator(
-            "uv_layer_manager.set_normal_angle",
-            text="自定义",
-            depress=scene.normal_angle_preset == C.NORMAL_ANGLE_PRESET_CUSTOM,
-        )
-        op_custom.preset = C.NORMAL_ANGLE_PRESET_CUSTOM
-
-        if len(U.get_selected_mesh_objects(context)) == 0:
-            normal_row.enabled = False
-            custom_row.enabled = False
 
     except Exception as e:
         layout.label(text=f"UI绘制错误: {str(e)[:30]}", icon='ERROR')

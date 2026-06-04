@@ -188,6 +188,8 @@ def set_material_view_mode(context, mode):
     next_mode = 'MATERIAL' if current_mode == mode else mode
 
     if next_mode == 'MATERIAL':
+        from . import material_id as MID
+        MID.restore_material_id_colors(context)
         _clear_selected_vertex_color_nodes(context)
         U.set_material_color_view(context)
     elif next_mode == 'ID':

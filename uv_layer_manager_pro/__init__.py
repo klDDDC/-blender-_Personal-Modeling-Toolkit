@@ -40,6 +40,11 @@ from .modeling_ops import (
     UV_LAYER_MANAGER_OT_select_overlapping_faces,
     UV_LAYER_MANAGER_OT_select_by_angle,
     UV_LAYER_MANAGER_OT_set_select_angle,
+    UV_LAYER_MANAGER_OT_flatten_by_normal,
+    UV_LAYER_MANAGER_OT_pin_verts_modeling,
+    UV_LAYER_MANAGER_OT_unpin_verts_modeling,
+    UV_LAYER_MANAGER_OT_clear_pinned_verts,
+    UV_LAYER_MANAGER_OT_unlock_normals,
 )
 from .material_ops import (
     UV_LAYER_MANAGER_OT_assign_material,
@@ -64,12 +69,6 @@ from .material_ops import (
 from .view_ops import (
     UV_LAYER_MANAGER_OT_toggle_uv_editor,
     UV_LAYER_MANAGER_OT_toggle_shader_editor,
-)
-from .flatten_ops import (
-    UV_LAYER_MANAGER_OT_flatten_u,
-    UV_LAYER_MANAGER_OT_flatten_v,
-    UV_LAYER_MANAGER_OT_pin_verts,
-    UV_LAYER_MANAGER_OT_unpin_verts,
 )
 from .ui import (
     UV_LAYER_MANAGER_UL_uv_layers,
@@ -103,6 +102,11 @@ classes = (
     UV_LAYER_MANAGER_OT_select_overlapping_faces,
     UV_LAYER_MANAGER_OT_select_by_angle,
     UV_LAYER_MANAGER_OT_set_select_angle,
+    UV_LAYER_MANAGER_OT_flatten_by_normal,
+    UV_LAYER_MANAGER_OT_pin_verts_modeling,
+    UV_LAYER_MANAGER_OT_unpin_verts_modeling,
+    UV_LAYER_MANAGER_OT_clear_pinned_verts,
+    UV_LAYER_MANAGER_OT_unlock_normals,
     UV_LAYER_MANAGER_OT_assign_material,
     UV_LAYER_MANAGER_OT_remove_material,
     UV_LAYER_MANAGER_OT_remove_material_by_name,
@@ -123,10 +127,6 @@ classes = (
     UV_LAYER_MANAGER_OT_set_color_attribute,
     UV_LAYER_MANAGER_OT_toggle_uv_editor,
     UV_LAYER_MANAGER_OT_toggle_shader_editor,
-    UV_LAYER_MANAGER_OT_flatten_u,
-    UV_LAYER_MANAGER_OT_flatten_v,
-    UV_LAYER_MANAGER_OT_pin_verts,
-    UV_LAYER_MANAGER_OT_unpin_verts,
     UV_LAYER_MANAGER_UL_uv_layers,
     UV_LAYER_MANAGER_UL_material_slots,
     UV_LAYER_MANAGER_prefs,

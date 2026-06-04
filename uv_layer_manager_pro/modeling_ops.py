@@ -744,3 +744,221 @@ class UV_LAYER_MANAGER_OT_set_normal_angle(bpy.types.Operator):
             return {'CANCELLED'}
         context.scene.normal_angle_preset = self.preset
         return bpy.ops.uv_layer_manager.clean_normals()
+
+
+# ============================================================
+# Operators - Flatten by Average Normal (3D Modeling)
+# ============================================================
+
+class UV_LAYER_MANAGER_OT_flatten_by_normal(bpy.types.Operator):
+    """将选中面的顶点沿平均法线方向压平到同一平面"""
+    bl_idname = "uv_layer_manager.flatten_by_normal"
+    bl_label = "压平法线"
+    bl_description = "将选中面的顶点沿平均法线方向压平（跳过固定顶点）"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode == 'EDIT'
+
+    def execute(self, context):
+        import mathutils
+
+        obj = context.active_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+        # Get selected faces
+        selected_faces = [f for f in bm.faces if f.select]
+        if not selected_faces:
+            self.report({'WARNING'}, "没有选中的面")
+            return {'CANCELLED'}
+
+        # Calculate area-weighted average normal
+        total_area = 0.0
+        avg_normal = mathutils.Vector((0.0, 0.0, 0.0))
+        for face in selected_faces:
+            area = face.calc_area()
+            avg_normal += face.normal * area
+            total_area += area
+
+        if total_area < 1e-12:
+            self.report({'WARNING'}, "选中面面积为零")
+            return {'CANCELLED'}
+
+        avg_normal = avg_normal / total_area
+        avg_normal.normalize()
+
+        # Calculate center point from all vertices of selected faces
+        all_verts = set()
+        for face in selected_faces:
+            for v in face.verts:
+                all_verts.add(v.index)
+
+        if not all_verts:
+            self.report({'WARNING'}, "没有顶点可操作")
+            return {'CANCELLED'}
+
+        center = mathutils.Vector((0.0, 0.0, 0.0))
+        for v_idx in all_verts:
+            center += bm.verts[v_idx].co
+        center /= len(all_verts)
+
+        # Get pinned vertex indices
+        vg = obj.vertex_groups.get("_pinned_verts")
+        pinned_indices = set()
+        if vg is not None:
+            vg_index = vg.index
+            mesh_verts = obj.data.vertices
+            for v_idx in all_verts:
+                try:
+                    for g in mesh_verts[v_idx].groups:
+                        if g.group == vg_index:
+                            pinned_indices.add(v_idx)
+                            break
+                except (IndexError, KeyError):
+                    pass
+
+        # Project vertices onto the plane (skip pinned)
+        modified = 0
+        for v_idx in all_verts:
+            if v_idx in pinned_indices:
+                continue
+            v = bm.verts[v_idx]
+            offset = v.co - center
+            dist = offset.dot(avg_normal)
+            v.co = v.co - dist * avg_normal
+            modified += 1
+
+        bmesh.update_edit_mesh(obj.data)
+        self.report({'INFO'}, f"已将 {modified} 个顶点沿平均法线压平")
+        return {'FINISHED'}
+
+
+# ============================================================
+# Operators - Pin / Unpin Vertices (3D Modeling)
+# ============================================================
+
+class UV_LAYER_MANAGER_OT_pin_verts_modeling(bpy.types.Operator):
+    """固定选中的顶点（建模用，不影响UV）"""
+    bl_idname = "uv_layer_manager.pin_verts_modeling"
+    bl_label = "固定顶点"
+    bl_description = "将选中顶点添加到固定顶点组（压平时跳过）"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode == 'EDIT'
+
+    def execute(self, context):
+        obj = context.active_object
+        mesh = obj.data
+        bm = bmesh.from_edit_mesh(mesh)
+
+        selected = [v.index for v in bm.verts if v.select]
+        if not selected:
+            self.report({'WARNING'}, "没有选中的顶点")
+            return {'CANCELLED'}
+
+        # Switch to object mode for vertex group operations
+        with U.temporary_object_mode(context, 'OBJECT'):
+            vg = obj.vertex_groups.get("_pinned_verts")
+            if vg is None:
+                vg = obj.vertex_groups.new(name="_pinned_verts")
+            vg.add(selected, 1.0, 'REPLACE')
+
+        self.report({'INFO'}, f"已固定 {len(selected)} 个顶点")
+        return {'FINISHED'}
+
+
+class UV_LAYER_MANAGER_OT_unpin_verts_modeling(bpy.types.Operator):
+    """取消固定选中的顶点（建模用）"""
+    bl_idname = "uv_layer_manager.unpin_verts_modeling"
+    bl_label = "取消固定"
+    bl_description = "将选中顶点从固定顶点组移除"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode == 'EDIT'
+
+    def execute(self, context):
+        obj = context.active_object
+        mesh = obj.data
+        bm = bmesh.from_edit_mesh(mesh)
+
+        selected = [v.index for v in bm.verts if v.select]
+        if not selected:
+            self.report({'WARNING'}, "没有选中的顶点")
+            return {'CANCELLED'}
+
+        # Switch to object mode for vertex group operations
+        with U.temporary_object_mode(context, 'OBJECT'):
+            vg = obj.vertex_groups.get("_pinned_verts")
+            if vg is None:
+                self.report({'WARNING'}, "没有固定顶点组")
+                return {'CANCELLED'}
+            for v_idx in selected:
+                vg.remove([v_idx])
+
+        self.report({'INFO'}, f"已取消固定 {len(selected)} 个顶点")
+        return {'FINISHED'}
+
+
+class UV_LAYER_MANAGER_OT_clear_pinned_verts(bpy.types.Operator):
+    """清除所有固定顶点（删除固定顶点组）"""
+    bl_idname = "uv_layer_manager.clear_pinned_verts"
+    bl_label = "清除固定"
+    bl_description = "删除整个固定顶点组，清除所有固定标记"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH'
+
+    def execute(self, context):
+        obj = context.active_object
+
+        vg = obj.vertex_groups.get("_pinned_verts")
+        if vg is None:
+            self.report({'WARNING'}, "没有固定顶点组")
+            return {'CANCELLED'}
+
+        obj.vertex_groups.remove(vg)
+        self.report({'INFO'}, "已清除所有固定顶点")
+        return {'FINISHED'}
+
+
+class UV_LAYER_MANAGER_OT_unlock_normals(bpy.types.Operator):
+    """清除自定义折边法向数据"""
+    bl_idname = "uv_layer_manager.unlock_normals"
+    bl_label = "解锁法线"
+    bl_description = "清除选中模型的自定义折边法向数据"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH'
+
+    def execute(self, context):
+        count = 0
+        for obj in context.selected_objects:
+            if obj.type != 'MESH':
+                continue
+            mesh = obj.data
+            if mesh.has_custom_normals:
+                mesh.normals_split_custom_set([(0, 0, 0)] * len(mesh.loops))
+                mesh.update()
+                count += 1
+        if count > 0:
+            self.report({'INFO'}, f"已清除 {count} 个模型的自定义法线")
+            return {'FINISHED'}
+        else:
+            self.report({'WARNING'}, "没有需要清除的自定义法线")
+            return {'CANCELLED'}
