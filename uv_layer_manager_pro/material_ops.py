@@ -99,6 +99,7 @@ class UV_LAYER_MANAGER_OT_add_material(bpy.types.Operator):
         obj = active if active and active.type == 'MESH' else objects[0]
         material = bpy.data.materials.new(name=f"{obj.name}_Material")
         material.use_nodes = True
+        MID.ensure_material_swatch_order(material)
         for o in objects:
             o.data.materials.append(material)
             o.active_material_index = len(o.data.materials) - 1
@@ -129,7 +130,9 @@ class UV_LAYER_MANAGER_OT_remove_material_slot(bpy.types.Operator):
             obj = context.active_object
         if obj is None or obj.type != 'MESH':
             return {'CANCELLED'}
-        U.remove_material_slot_from_object(obj, self.index)
+        if not U.remove_material_slot_from_object(obj, self.index):
+            self.report({'WARNING'}, "无效的材质槽索引")
+            return {'CANCELLED'}
         self.report({'INFO'}, f"已移除 {obj.name} 的材质槽 {self.index}")
         return {'FINISHED'}
 
@@ -148,7 +151,7 @@ class UV_LAYER_MANAGER_OT_select_material_slot(bpy.types.Operator):
             obj = bpy.data.objects.get(self.target_object)
         else:
             obj = context.active_object
-        if obj and obj.type == 'MESH' and self.index < len(obj.data.materials):
+        if obj and obj.type == 'MESH' and 0 <= self.index < len(obj.data.materials):
             obj.active_material_index = self.index
         return {'FINISHED'}
 
@@ -411,115 +414,24 @@ class UV_LAYER_MANAGER_OT_merge_duplicate_materials(bpy.types.Operator):
 class UV_LAYER_MANAGER_OT_organize_materials(bpy.types.Operator):
     bl_idname = "uv_layer_manager.organize_materials"
     bl_label = "整理材质"
-    bl_description = "清理选中模型未使用材质槽，删除 .001/.002 等重复材质"
+    bl_description = "安全清理选中模型的未使用材质槽和重复材质槽，不删除材质数据"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return bool(U.get_selected_mesh_objects(context))
+
     def execute(self, context):
-        import re
-
-        suffix_re = re.compile(r"(\.\d{3})+$")
-
-        def base_name(name):
-            while suffix_re.search(name):
-                name = suffix_re.sub("", name)
-            return name
-
-        # ── 第一步：清理选中模型未使用的材质槽 ──
         removed_slots = 0
-        for obj in U.get_selected_mesh_objects(context):
-            removed_slots += U.remove_unused_material_slots(obj)
-
-        # ── 第二步：把所有 .001 .002 材质按 basename 分组 ──
-        groups = {}
-        for mat in list(bpy.data.materials):
-            clean = base_name(mat.name)
-            if clean == mat.name:
-                continue
-            groups.setdefault(clean, []).append(mat)
-
-        # ── 第三步：每组选一个 canonical，其余 → replace_map ──
-        replace_map = {}
-        canonical_set = set()
-        for clean_name, candlist in groups.items():
-            # 有 exact 名字的优先
-            canonical = bpy.data.materials.get(clean_name)
-            if canonical is None:
-                canonical = sorted(candlist, key=lambda m: len(m.name))[0]
-            canonical_set.add(canonical)
-            for m in candlist:
-                if m != canonical:
-                    replace_map[m] = canonical
-
-        print(f"[UVLM] 检测到重复材质: {len(replace_map)} 个")
-        if replace_map:
-            for dup, canon in replace_map.items():
-                print(f"  {dup.name} (users={dup.users}) → {canon.name}")
-        else:
-            print(f"[UVLM] 无重复材质，跳过")
-
-        replaced_slots = 0
-        if replace_map:
-            # ── 第四步：替换所有对象材质槽 ──
-            for obj in bpy.data.objects:
-                for slot in obj.material_slots:
-                    if slot.material in replace_map:
-                        print(f"[UVLM] 替换 {obj.name} 的材质槽: {slot.material.name} → {replace_map[slot.material].name}")
-                        slot.material = replace_map[slot.material]
-                        replaced_slots += 1
-
-            # ── 第五步：替换所有 mesh 数据块材质槽 ──
-            for mesh in bpy.data.meshes:
-                for i, mat in enumerate(mesh.materials):
-                    if mat in replace_map:
-                        print(f"[UVLM] 替换 {mesh.name} mesh[{i}]: {mat.name} → {replace_map[mat].name}")
-                        mesh.materials[i] = replace_map[mat]
-                        replaced_slots += 1
-
-            print(f"[UVLM] 替换完成: {replaced_slots} 个槽")
-
-        # ── 第六步：合并选中模型内重复材质槽 ──
         merged_slots = 0
         for obj in U.get_selected_mesh_objects(context):
+            removed_slots += U.remove_unused_material_slots(obj)
             merged_slots += U.merge_duplicate_material_slots(obj)
             removed_slots += U.remove_unused_material_slots(obj)
-
-        # ── 第七步：删除重复材质（纯数据 API，不调 bpy.ops） ──
-        removed_materials = 0
-        # 收集所有需要检查的材质：replace_map 的 keys（被替换的重复材质）+
-        # canonical_set 中 users==0 的（没有 base 材质时 canonical 也是残留）
-        all_to_check = set(replace_map.keys())
-        for canon in canonical_set:
-            if canon.users == 0:
-                all_to_check.add(canon)
-
-        for mat in all_to_check:
-            if mat.name not in bpy.data.materials:
-                continue
-            print(f"[UVLM] 尝试删除 {mat.name} (users={mat.users}, fake_user={mat.use_fake_user})")
-            if mat.use_fake_user:
-                mat.use_fake_user = False
-            # 两轮尝试
-            try:
-                bpy.data.materials.remove(mat, do_unlink=True)
-                removed_materials += 1
-                print(f"  → 成功")
-            except TypeError:
-                try:
-                    bpy.data.materials.remove(mat)
-                    removed_materials += 1
-                    print(f"  → 成功 (fallback)")
-                except RuntimeError as e:
-                    print(f"  → 失败: {e}")
-            except RuntimeError as e:
-                print(f"  → 失败: {e}")
-
-        print(f"[UVLM] 删除完成: {removed_materials} 个材质")
-
-        total_mats = len(bpy.data.materials)
-        grouped = sum(1 for l in groups.values() if len(l) >= 2)
+        U.invalidate_duplicate_material_cache()
         self.report(
             {'INFO'},
-            f"扫描 {total_mats} 个材质，{len(groups)} 组后缀，{grouped} 组≥2 | 替换 {replaced_slots} 槽 删除 {removed_materials} 材质",
+            f"安全清理完成：移除 {removed_slots} 个未使用槽，合并 {merged_slots} 个重复槽",
         )
         return {'FINISHED'}
 
@@ -540,34 +452,15 @@ class UV_LAYER_MANAGER_OT_toggle_vertex_color_view(bpy.types.Operator):
     )
 
     def execute(self, context):
-        # ── 材质ID ──
-        if self.mode == 'ID':
-            updated, next_mode = VCN.set_material_view_mode(context, self.mode)
-            label = "材质显示" if next_mode == 'MATERIAL' else "材质ID"
-            self.report({'INFO'}, f"已切换到{label}，更新 {updated} 个3D视图")
-            return {'FINISHED'}
-
-        # ── 顶点颜色 / 顶点alpha ──
         obj = context.active_object
         if obj is None or obj.type != 'MESH':
             self.report({'WARNING'}, "请选中一个网格模型")
             return {'CANCELLED'}
 
-        if VCN.has_uvlm_vertex_color_nodes(obj):
-            # 已有注入节点 → 清除并恢复原连接
-            VCN._clear_selected_vertex_color_nodes(context)
-            MID.restore_material_id_colors(context)
-            L.tag_all_view3d_redraw()
-            self.report({'INFO'}, "已恢复材质显示")
-        else:
-            # 无节点 → 注入
-            MID.restore_material_id_colors(context)
-            VCN._clear_selected_vertex_color_nodes(context)
-            VCN._apply_vertex_color_nodes(context, self.mode)
-            L.tag_all_view3d_redraw()
-            label = "顶点alpha" if self.mode == 'ALPHA' else "顶点颜色"
-            self.report({'INFO'}, f"已切换到{label}")
-
+        updated, next_mode = VCN.set_material_view_mode(context, self.mode)
+        labels = {'MATERIAL': '材质显示', 'ID': '材质ID', 'COLOR': '顶点颜色', 'ALPHA': '顶点alpha'}
+        L.tag_all_view3d_redraw()
+        self.report({'INFO'}, f"已切换到{labels[next_mode]}，更新 {updated} 个3D视图")
         return {'FINISHED'}
 
 
@@ -590,10 +483,7 @@ class UV_LAYER_MANAGER_OT_set_color_attribute(bpy.types.Operator):
         for index, attribute in enumerate(color_attributes):
             if attribute.name == self.name:
                 color_attributes.active_color_index = index
-                scene = context.scene
-                scene.material_view_mode = 'COLOR'
-                VCN._clear_selected_vertex_color_nodes(context)
-                VCN._apply_vertex_color_nodes(context, 'COLOR')
+                VCN.set_material_view_mode(context, 'COLOR', force=True)
                 L.tag_all_view3d_redraw()
                 return {'FINISHED'}
         self.report({'WARNING'}, f"找不到颜色属性: {self.name}")

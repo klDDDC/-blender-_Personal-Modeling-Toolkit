@@ -429,11 +429,6 @@ def register_properties():
         description="着色器编辑器布局是否激活",
         default=False,
     )
-    bpy.types.Scene.show_layout_section = bpy.props.BoolProperty(
-        name="显示布局切换",
-        description="展开/折叠编辑器布局切换面板",
-        default=True,
-    )
 
 
 def unregister_properties():
@@ -441,5 +436,3 @@ def unregister_properties():
         del bpy.types.Scene.uv_layout_active
     if hasattr(bpy.types.Scene, 'shader_layout_active'):
         del bpy.types.Scene.shader_layout_active
-    if hasattr(bpy.types.Scene, 'show_layout_section'):
-        del bpy.types.Scene.show_layout_section

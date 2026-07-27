@@ -17,7 +17,7 @@ from . import merge_vertices as MV
 # ============================================================
 
 def _vg_items(self, context):
-    items = [('', "（无）", "")]
+    items = [('__NONE__', "（无）", "不限制顶点组")]
     seen = set()
     # 始终包含已存储的值，确保 EnumProperty 设值不会验证失败
     try:
@@ -55,6 +55,7 @@ class UV_LAYER_MANAGER_OT_set_close_snap_distance(bpy.types.Operator):
         name="顶点组",
         description='仅合并该顶点组内的顶点（选"（无）"则不限制）',
         items=_vg_items,
+        default=0,
     )
 
     def invoke(self, context, event):
@@ -65,6 +66,8 @@ class UV_LAYER_MANAGER_OT_set_close_snap_distance(bpy.types.Operator):
                 if obj.type == 'MESH' and obj.vertex_groups.get(stored_vg):
                     self.vertex_group = stored_vg
                     break
+        else:
+            self.vertex_group = '__NONE__'
         return context.window_manager.invoke_props_dialog(self, width=280)
 
     def draw(self, context):
@@ -73,7 +76,8 @@ class UV_LAYER_MANAGER_OT_set_close_snap_distance(bpy.types.Operator):
 
     def execute(self, context):
         context.scene.close_snap_distance_cm = self.distance_cm
-        context.scene.close_snap_vertex_group = self.vertex_group
+        vertex_group = getattr(self, "vertex_group", "__NONE__")
+        context.scene.close_snap_vertex_group = "" if vertex_group == '__NONE__' else vertex_group
         return {'FINISHED'}
 
 
@@ -214,10 +218,13 @@ class UV_LAYER_MANAGER_OT_snap_close_vertices(bpy.types.Operator):
 
         if original_mode == 'EDIT' and active_object and active_object.type == 'MESH':
             import bmesh
-            bm = bmesh.from_edit_mesh(active_object.data)
-            sel = {v.index for v in bm.verts if v.select}
-            if sel:
-                selected_map[active_object.data.as_pointer()] = sel
+            for edit_object in context.objects_in_mode_unique_data:
+                if edit_object.type != 'MESH':
+                    continue
+                bm = bmesh.from_edit_mesh(edit_object.data)
+                sel = {v.index for v in bm.verts if v.select}
+                if sel:
+                    selected_map[edit_object.data.as_pointer()] = sel
 
         # --- Convert cm to BU ---
         distance_cm = getattr(context.scene, "close_snap_distance_cm", 0.1)
@@ -671,8 +678,8 @@ class UV_LAYER_MANAGER_OT_select_by_angle(bpy.types.Operator):
 
 class UV_LAYER_MANAGER_OT_clean_normals(bpy.types.Operator):
     bl_idname = "uv_layer_manager.clean_normals"
-    bl_label = "清理法向"
-    bl_description = "解锁选中模型法向，添加 Smooth by Angle 修改器（保留已有锐边）"
+    bl_label = "清理法向与切线"
+    bl_description = "清除选中模型的自定义法向和切线缓存，再添加 Smooth by Angle（保留锐边）"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -708,7 +715,7 @@ class UV_LAYER_MANAGER_OT_clean_normals(bpy.types.Operator):
                 touched_meshes.add(mesh.as_pointer())
                 NA.apply_normal_angle_modifier(obj, angle_degrees)
 
-            self.report({'INFO'}, f"已解锁 {len(objects)} 个模型法向，添加 Smooth by Angle 修改器（{angle_degrees:g}°）")
+            self.report({'INFO'}, f"已清理 {len(touched_meshes)} 个网格的法向与切线，应用 Smooth by Angle（{angle_degrees:g}°）")
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"清理法向失败: {str(e)}")
@@ -736,11 +743,29 @@ class UV_LAYER_MANAGER_OT_set_normal_angle(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     preset: bpy.props.StringProperty()
+    angle: bpy.props.FloatProperty(
+        name="自定义法向角度",
+        description="自定义清理后的法向角度",
+        default=180.0,
+        min=0.0,
+        max=180.0,
+    )
+
+    def invoke(self, context, event):
+        if self.preset != C.NORMAL_ANGLE_PRESET_CUSTOM:
+            return self.execute(context)
+        self.angle = context.scene.normal_angle_custom
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop(self, "angle", text="角度")
 
     def execute(self, context):
-        valid_presets = {'180', '30', '60', '90', C.NORMAL_ANGLE_PRESET_CUSTOM}
+        valid_presets = {'180', '30', '90', C.NORMAL_ANGLE_PRESET_CUSTOM}
         if self.preset not in valid_presets:
             self.report({'WARNING'}, "无效的法向角度预设")
             return {'CANCELLED'}
+        if self.preset == C.NORMAL_ANGLE_PRESET_CUSTOM:
+            context.scene.normal_angle_custom = self.angle
         context.scene.normal_angle_preset = self.preset
         return bpy.ops.uv_layer_manager.clean_normals()

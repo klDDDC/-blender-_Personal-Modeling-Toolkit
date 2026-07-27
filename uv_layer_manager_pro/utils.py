@@ -40,7 +40,7 @@ def get_prefs_props():
 def get_scene_max_uv_info(scene):
     max_count = 0
     max_name = ""
-    for obj in bpy.data.objects:
+    for obj in scene.objects:
         if obj.type != 'MESH' or obj.data is None:
             continue
         uv_count = len(obj.data.uv_layers)
@@ -117,6 +117,50 @@ def get_material_base_name(name):
     while re.search(r"\.\d{3}$", name):
         name = re.sub(r"\.\d{3}$", "", name)
     return name
+
+
+def build_material_display_groups(objects):
+    """Group material slots for UI display without modifying datablocks."""
+    groups = {}
+    for obj in objects:
+        for slot_index, slot in enumerate(obj.material_slots):
+            material = slot.material
+            if material is None:
+                continue
+            family_name = get_material_base_name(material.name)
+            library = getattr(material, "library", None)
+            library_path = getattr(library, "filepath", "") if library else ""
+            key = f"{library_path}|{family_name.casefold()}"
+            group = groups.setdefault(
+                key,
+                {
+                    "key": key,
+                    "name": family_name,
+                    "library_path": library_path,
+                    "members": {},
+                    "slots": [],
+                },
+            )
+            group["slots"].append((obj, slot_index))
+            member = group["members"].setdefault(
+                material.as_pointer(),
+                {"material": material, "slots": []},
+            )
+            member["slots"].append((obj, slot_index))
+
+    result = []
+    for group in groups.values():
+        group["members"] = sorted(
+            group["members"].values(),
+            key=lambda member: member["material"].name.casefold(),
+        )
+        group["object_count"] = len({obj.as_pointer() for obj, _ in group["slots"]})
+        group["slot_count"] = len(group["slots"])
+        for member in group["members"]:
+            member["object_count"] = len({obj.as_pointer() for obj, _ in member["slots"]})
+            member["slot_count"] = len(member["slots"])
+        result.append(group)
+    return sorted(result, key=lambda group: (group["name"].casefold(), group["library_path"]))
 
 
 def ensure_material_slot(obj, material):

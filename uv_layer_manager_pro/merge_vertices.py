@@ -19,12 +19,15 @@ def get_close_snap_distance(scene):
     return max(value * 0.01, 0.0)
 
 
-def get_eligible_close_snap_vertices(mesh, selected_indices=None, vertex_group_name=None):
+def get_eligible_close_snap_vertices(obj, selected_indices=None, vertex_group_name=None):
     """
     Return set of vertex indices eligible for merge.
-    Conditions (OR): boundary edge, sharp edge, selected vertex, in vertex group.
+    Without a vertex-group filter, conditions are OR: boundary edge, sharp edge,
+    or selected vertex. When a group is specified, it is a hard filter and the
+    result is intersected with that object's positively weighted group members.
     Seam edges are intentionally excluded.
     """
+    mesh = obj.data
     # Edge-face count for boundary detection
     edge_face_counts = {}
     for polygon in mesh.polygons:
@@ -42,12 +45,6 @@ def get_eligible_close_snap_vertices(mesh, selected_indices=None, vertex_group_n
         sharp_edge_data = None
 
     # Vertex group lookup
-    vgroup_index = None
-    if vertex_group_name:
-        vg = mesh.vertex_groups.get(vertex_group_name)
-        if vg:
-            vgroup_index = vg.index
-
     eligible = set()
 
     # --- Boundary / Sharp edges (seam excluded) ---
@@ -67,13 +64,17 @@ def get_eligible_close_snap_vertices(mesh, selected_indices=None, vertex_group_n
     if selected_indices:
         eligible.update(selected_indices)
 
-    # --- Vertex group ---
-    if vgroup_index is not None:
-        for vert in mesh.vertices:
-            for g in vert.groups:
-                if g.group == vgroup_index and g.weight > 0:
-                    eligible.add(vert.index)
-                    break
+    # --- Vertex group filter ---
+    if vertex_group_name:
+        vg = obj.vertex_groups.get(vertex_group_name)
+        if vg is None:
+            return set()
+        group_vertices = {
+            vert.index
+            for vert in mesh.vertices
+            if any(g.group == vg.index and g.weight > 0 for g in vert.groups)
+        }
+        eligible.intersection_update(group_vertices)
 
     return eligible
 
@@ -105,7 +106,7 @@ def snap_close_vertices_in_objects(objects, distance_bu, selected_map=None, vert
 
         mesh_key = mesh.as_pointer()
         sel = (selected_map or {}).get(mesh_key)
-        eligible = get_eligible_close_snap_vertices(mesh, sel, vertex_group_name)
+        eligible = get_eligible_close_snap_vertices(obj, sel, vertex_group_name)
         if not eligible:
             continue
 

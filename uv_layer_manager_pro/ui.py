@@ -50,68 +50,57 @@ class UV_LAYER_MANAGER_UL_uv_layers(bpy.types.UIList):
 class UV_LAYER_MANAGER_UL_material_slots(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         layout.operator_context = 'INVOKE_DEFAULT'
-        row = layout.row(align=True)
+        item_col = layout.column(align=True)
         selected_face_material_index = U.get_selected_face_material_index_cached(context, data)
         if selected_face_material_index == index:
-            row.alert = True
-        row.scale_y = 1.18
+            item_col.alert = True
 
         material = item.material
         if material is not None:
             try:
-                icon_value = MID.get_color_preview_icon(tuple(material.diffuse_color), f"dclr_{material.as_pointer()}")
+                icon_value = MID.get_material_swatch_icon(material)
             except Exception:
                 icon_value = 0
-            row.label(
+            name_row = item_col.row(align=True)
+            name_row.scale_y = 1.05
+            name_row.label(
                 text="",
                 icon_value=icon_value,
             )
-            id_enabled = MID.MaterialIdState.has_original(material)
-            op_toggle_id = row.operator(
-                "uv_layer_manager.toggle_material_id_color",
-                text="",
-                icon='CHECKBOX_HLT' if id_enabled else 'CHECKBOX_DEHLT',
-                emboss=False,
-                depress=id_enabled,
-            )
-            op_toggle_id.index = index
-            op_edit_id = row.operator(
-                "uv_layer_manager.edit_material_id_color",
-                text="",
-                icon='PREFERENCES',
-                emboss=False,
-            )
-            op_edit_id.index = index
-            row.label(
-                text="",
-                icon_value=layout.icon(material),
-            )
-            name_row = row.row(align=True)
             name_row.prop(material, "name", text="", emboss=False)
-
-            op_assign = row.operator(
-                "uv_layer_manager.assign_material_slot",
-                text="",
-                icon='BACK',
-                emboss=False,
-            )
-            op_assign.index = index
         else:
-            op_select = row.operator(
+            empty_row = item_col.row(align=True)
+            op_select = empty_row.operator(
                 "uv_layer_manager.select_material_slot",
                 text="空材质槽",
                 icon='BLANK1',
                 emboss=False,
             )
             op_select.index = index
+            op_remove = empty_row.operator(
+                "uv_layer_manager.remove_material_slot",
+                text="",
+                icon='REMOVE',
+                emboss=False,
+            )
+            op_remove.index = index
 
-        op_remove = row.operator(
-            "uv_layer_manager.remove_material_slot",
-            text="",
-            icon='REMOVE',
-            emboss=False,
-        )
-        op_remove.index = index
+
+class UV_LAYER_MANAGER_OT_toggle_material_group(bpy.types.Operator):
+    bl_idname = "uv_layer_manager.toggle_material_group"
+    bl_label = "展开材质组"
+    bl_description = "展开或折叠同名材质组；不会合并或修改材质数据"
+    bl_options = {'INTERNAL'}
+
+    group_key: bpy.props.StringProperty()
+
+    def execute(self, context):
+        if self.group_key in C._material_group_expanded:
+            C._material_group_expanded.remove(self.group_key)
+        else:
+            C._material_group_expanded.add(self.group_key)
+        L.tag_all_view3d_redraw()
+        return {'FINISHED'}
 
 
 # ============================================================
@@ -127,52 +116,6 @@ def draw_empty_uv_list(layout):
         row.label(text="", icon='BLANK1')
 
 
-def draw_status_card(layout, title, value, icon='BLANK1'):
-    card = layout.box()
-    col = card.column(align=True)
-    col.scale_y = 0.92
-    col.label(text=title, icon=icon)
-    value_row = col.row(align=True)
-    value_row.scale_y = 0.85
-    value_row.label(text=str(value))
-
-
-def draw_top_dashboard(layout, context):
-    scene = context.scene
-    objects = U.get_selected_mesh_objects(context)
-    obj, mesh = U.get_active_mesh(context)
-    uv_count = len(mesh.uv_layers) if mesh and mesh.uv_layers else 0
-    scene_max_count, _ = U.get_scene_max_uv_info(scene)
-    material_count = len(obj.material_slots) if obj else 0
-
-    row = layout.row(align=True)
-    row.scale_y = 1.05
-    draw_status_card(row, "当前网格", len(objects), 'MESH_DATA')
-    draw_status_card(row, "UV层", f"{uv_count} / {scene_max_count}", 'UV')
-    draw_status_card(row, "材质槽", material_count, 'MATERIAL')
-
-
-def draw_section_header(layout, scene, scene_prop, title, icon, right_text=""):
-    header = layout.row(align=True)
-    header.scale_y = 1.05
-    is_open = getattr(scene, scene_prop)
-    disclosure = 'DISCLOSURE_TRI_DOWN' if is_open else 'DISCLOSURE_TRI_RIGHT'
-    header.prop(scene, scene_prop, text="", icon=disclosure, emboss=False)
-    header.label(text=title, icon=icon)
-    if right_text:
-        right = header.row(align=True)
-        right.alignment = 'RIGHT'
-        right.label(text=right_text)
-    return is_open
-
-
-def draw_empty_state(layout, message, icon='INFO'):
-    box = layout.box()
-    col = box.column(align=True)
-    col.scale_y = 1.5
-    col.label(text=message, icon=icon)
-
-
 # ============================================================
 # Section draw functions
 # ============================================================
@@ -183,11 +126,7 @@ def draw_uv_section(layout, context, obj, mesh):
     scene_max_count, _ = U.get_scene_max_uv_info(scene)
     uv_count = len(mesh.uv_layers) if mesh and mesh.uv_layers else 0
 
-    box = layout.box()
-    if not draw_section_header(box, scene, "show_uv_section", "UV 层管理", 'UV', f"当前: {uv_count} / 场景最大: {scene_max_count}"):
-        return
-
-    col = box.column(align=True)
+    col = layout.column(align=True)
     if obj is None or mesh is None or not obj.select_get():
         draw_empty_uv_list(col)
         col.separator()
@@ -258,17 +197,6 @@ def draw_uv_section(layout, context, obj, mesh):
     if scene_max_count == 0:
         col_sel_max.enabled = False
 
-    col.separator()
-    row = col.row(align=True)
-    row.scale_y = 1.2
-    row.operator("uv_layer_manager.flatten_u", text="打平U", icon='ALIGN_CENTER')
-    row.operator("uv_layer_manager.flatten_v", text="打平V", icon='ALIGN_MIDDLE')
-
-    row = col.row(align=True)
-    row.scale_y = 1.2
-    row.operator("uv_layer_manager.pin_verts", text="固定顶点", icon='PINNED')
-    row.operator("uv_layer_manager.unpin_verts", text="取消固定", icon='UNPINNED')
-
 
 def draw_modeling_tools_section(layout, context):
     try:
@@ -276,60 +204,105 @@ def draw_modeling_tools_section(layout, context):
         scene = context.scene
         selected_mesh_count = len(U.get_selected_mesh_objects(context))
 
-        box = layout.box()
-        if not draw_section_header(box, scene, "show_modeling_section", "建模工具", 'TOOL_SETTINGS', f"{selected_mesh_count} 个工具"):
-            return
+        col = layout.column(align=True)
 
-        col = box.column(align=True)
+        normal_title = col.row(align=True)
+        normal_title.label(text="法向角度", icon='NORMALS_FACE')
 
-        action_row = col.row(align=True)
-        action_row.scale_y = 1.25
-        action_main = action_row.row(align=True)
-        action_main.operator("uv_layer_manager.reset_uv_names", text="uv命名重置", icon='UV')
-        action_settings = action_row.row(align=True)
+        normal_row = col.row(align=True)
+        normal_row.scale_y = 1.18
+        for preset, label in (
+            ('180', "180"),
+            ('30', "30"),
+            ('90', "90"),
+        ):
+            op = normal_row.operator(
+                "uv_layer_manager.set_normal_angle",
+                text=label,
+                depress=scene.normal_angle_preset == preset,
+            )
+            op.preset = preset
+
+        custom_value = normal_row.row(align=True)
+        custom_value.alignment = 'CENTER'
+        custom_value.label(text=f"{scene.normal_angle_custom:g}")
+        op_custom = normal_row.operator(
+            "uv_layer_manager.set_normal_angle",
+            text="自定义",
+            depress=scene.normal_angle_preset == C.NORMAL_ANGLE_PRESET_CUSTOM,
+        )
+        op_custom.preset = C.NORMAL_ANGLE_PRESET_CUSTOM
+
+        if selected_mesh_count == 0:
+            normal_row.enabled = False
+
+        col.separator()
+
+        tools_title = col.row(align=True)
+        tools_title.label(text="建模操作", icon='TOOL_SETTINGS')
+
+        tools = col.grid_flow(
+            row_major=True,
+            columns=2,
+            even_columns=True,
+            even_rows=True,
+            align=True,
+        )
+
+        action_cell = tools.row(align=True)
+        action_cell.scale_y = 1.25
+        action_split = action_cell.split(factor=0.82, align=True)
+        action_main = action_split.row(align=True)
+        action_main.operator("uv_layer_manager.reset_uv_names", text="UV 命名重置", icon='UV')
+        action_settings = action_split.row(align=True)
         action_settings.operator("uv_layer_manager.set_uv_naming", text="", icon='PREFERENCES')
         if selected_mesh_count == 0:
             action_main.enabled = False
 
-        close_row = col.row(align=True)
-        close_row.scale_y = 1.25
-        close_main = close_row.row(align=True)
+        close_cell = tools.row(align=True)
+        close_cell.scale_y = 1.25
+        close_split = close_cell.split(factor=0.82, align=True)
+        close_main = close_split.row(align=True)
         close_main.operator("uv_layer_manager.snap_close_vertices", text="合并相近", icon='AUTOMERGE_OFF')
-        close_settings = close_row.row(align=True)
+        close_settings = close_split.row(align=True)
         close_settings.operator("uv_layer_manager.set_close_snap_distance", text="", icon='PREFERENCES')
         if selected_mesh_count == 0:
             close_main.enabled = False
 
-        rotate_row = col.row(align=True)
-        rotate_row.scale_y = 1.25
-        rotate_row.operator("uv_layer_manager.rotate_linked_duplicate", text="旋转复制", icon='DUPLICATE')
+        rotate_cell = tools.row(align=True)
+        rotate_cell.scale_y = 1.25
+        rotate_cell.operator("uv_layer_manager.rotate_linked_duplicate", text="旋转复制", icon='DUPLICATE')
         if selected_mesh_count == 0:
-            rotate_row.enabled = False
+            rotate_cell.enabled = False
 
-        col.separator()
-
-        ngon_row = col.row(align=True)
-        ngon_row.scale_y = 1.25
-        ngon_row.operator("uv_layer_manager.select_ngons", text="大于4边面", icon='SNAP_FACE')
-        ngon_row.operator("uv_layer_manager.quadify_ngons", text="处理多边面", icon='MOD_TRIANGULATE')
+        ngon_cell = tools.row(align=True)
+        ngon_cell.scale_y = 1.25
+        ngon_cell.operator("uv_layer_manager.select_ngons", text="大于4边面", icon='SNAP_FACE')
         if selected_mesh_count == 0:
-            ngon_row.enabled = False
+            ngon_cell.enabled = False
 
-        overlap_row = col.row(align=True)
-        overlap_row.scale_y = 1.25
-        overlap_row.operator("uv_layer_manager.select_overlapping_faces", text="检查重叠面", icon='FACESEL')
+        quadify_cell = tools.row(align=True)
+        quadify_cell.scale_y = 1.25
+        quadify_cell.operator("uv_layer_manager.quadify_ngons", text="处理多边面", icon='MOD_TRIANGULATE')
         if selected_mesh_count == 0:
-            overlap_row.enabled = False
+            quadify_cell.enabled = False
 
-        angle_row = col.row(align=True)
-        angle_row.scale_y = 1.25
-        angle_main = angle_row.row(align=True)
-        angle_main.operator("uv_layer_manager.select_by_angle", text="角度选择", icon='ORIENTATION_NORMAL')
-        angle_settings = angle_row.row(align=True)
+        overlap_cell = tools.row(align=True)
+        overlap_cell.scale_y = 1.25
+        overlap_cell.operator("uv_layer_manager.select_overlapping_faces", text="检查重叠面", icon='FACESEL')
+        if selected_mesh_count == 0:
+            overlap_cell.enabled = False
+
+        angle_cell = tools.row(align=True)
+        angle_cell.scale_y = 1.25
+        angle_cell.operator("uv_layer_manager.select_by_angle", text="角度选择", icon='ORIENTATION_NORMAL')
+        if selected_mesh_count == 0:
+            angle_cell.enabled = False
+
+        angle_settings = tools.row(align=True)
+        angle_settings.scale_y = 1.25
         angle_threshold = getattr(scene, "uvlm_select_angle_threshold", 30.0)
         angle_settings.operator("uv_layer_manager.set_select_angle", text=f"{angle_threshold:g}°", icon='PREFERENCES')
-        if selected_mesh_count == 0:
-            angle_main.enabled = False
 
         return
     except Exception as e:
@@ -344,14 +317,15 @@ def draw_material_management_section(layout, context):
         objects = U.get_selected_mesh_objects(context)
         active_obj = context.active_object if context.active_object and context.active_object.type == 'MESH' else None
 
-        box = layout.box()
-        mode = "单" if len(objects) <= 1 else "多"
-        if not draw_section_header(box, scene, "show_material_section", "材质管理", 'MATERIAL', f"{mode}选 | {len(objects)}个模型"):
-            return
+        col = layout.column(align=True)
 
-        col = box.column(align=True)
+        toolbar = col.row(align=True)
+        toolbar.label(text="材质槽", icon='MATERIAL')
+        add_col = toolbar.column(align=True)
+        add_col.operator("uv_layer_manager.add_material", text="", icon='ADD')
+        add_col.enabled = bool(objects)
 
-        material_row = col.row(align=True)
+        material_row = col.column(align=True)
         if len(objects) == 0:
             empty_col = material_row.column(align=True)
             empty_col.enabled = False
@@ -371,39 +345,59 @@ def draw_material_management_section(layout, context):
                 maxrows=6,
             )
         else:
-            # 多选：按材质去重显示，避免多个模型共享同一材质时重复刷屏。
+            # 多选：按显示名称族折叠；底层材质数据保持独立。
             sub = material_row.column(align=True)
-            sub.scale_y = 1.15
-            material_groups = {}
             empty_objects = []
             for obj in objects:
                 if not obj.material_slots:
                     empty_objects.append(obj)
-                    continue
-                for slot_index, slot in enumerate(obj.material_slots):
-                    mat = slot.material
-                    if mat is None:
-                        continue
-                    key = mat.as_pointer()
-                    group = material_groups.setdefault(key, {"material": mat, "slots": []})
-                    group["slots"].append((obj, slot_index))
+            material_groups = U.build_material_display_groups(objects)
 
-            for group in material_groups.values():
-                mat = group["material"]
-                slots = group["slots"]
-                first_obj, first_slot_index = slots[0]
-                object_count = len({obj.as_pointer() for obj, _slot_index in slots})
-                row = sub.row(align=True)
-                ico = 0
-                try:
-                    ico = mat.preview.icon_id
-                except Exception:
-                    pass
-                row.label(text="", icon_value=ico)
-                row.label(text=mat.name)
-                op_remove = row.operator("uv_layer_manager.remove_material_by_name", text="", icon='X')
-                op_remove.material_name = mat.name
-                row.label(text=f"{object_count}物体/{len(slots)}槽")
+            for group in material_groups:
+                members = group["members"]
+                grouped = len(members) > 1
+                group_col = sub.column(align=True)
+                name_row = group_col.row(align=True)
+                if grouped:
+                    expanded = group["key"] in C._material_group_expanded
+                    op_expand = name_row.operator(
+                        "uv_layer_manager.toggle_material_group",
+                        text="",
+                        icon='DISCLOSURE_TRI_DOWN' if expanded else 'DISCLOSURE_TRI_RIGHT',
+                        emboss=False,
+                    )
+                    op_expand.group_key = group["key"]
+                    name_row.label(text=group["name"], icon='MATERIAL')
+                else:
+                    mat = members[0]["material"]
+                    try:
+                        group_icon = MID.get_material_swatch_icon(mat)
+                    except Exception:
+                        group_icon = 0
+                    name_row.label(text="", icon_value=group_icon)
+                    name_row.prop(mat, "name", text="", emboss=False)
+                    op_remove = name_row.operator("uv_layer_manager.remove_material_by_name", text="", icon='X', emboss=False)
+                    op_remove.material_name = mat.name
+
+                if grouped and expanded:
+                    for member in members:
+                        mat = member["material"]
+                        member_row = group_col.row(align=True)
+                        member_row.separator(factor=1.0)
+                        try:
+                            member_icon = MID.get_material_swatch_icon(mat)
+                        except Exception:
+                            member_icon = 0
+                        member_row.label(text="", icon_value=member_icon)
+                        member_row.prop(mat, "name", text="", emboss=False)
+                        member_row.label(text=f"{member['object_count']}物体/{member['slot_count']}槽")
+                        op_remove = member_row.operator(
+                            "uv_layer_manager.remove_material_by_name",
+                            text="",
+                            icon='X',
+                            emboss=False,
+                        )
+                        op_remove.material_name = mat.name
 
             if empty_objects:
                 row = sub.row(align=True)
@@ -412,18 +406,15 @@ def draw_material_management_section(layout, context):
                 row = sub.row(align=True)
                 row.label(text="所有选中模型均无材质", icon='MATERIAL')
 
-        material_tools = material_row.column(align=True)
-        material_tools.scale_x = 0.82
-        material_tools.operator("uv_layer_manager.add_material", text="", icon='ADD')
-        if len(objects) == 0:
-            material_tools.enabled = False
+        col.separator()
+        view_title = col.row(align=True)
+        view_title.label(text="显示与颜色", icon='COLOR')
 
-        duplicate_count = len(U.get_duplicate_material_map())
         compact_row = col.row(align=True)
         compact_row.scale_y = 1.2
         compact_row.operator(
             "uv_layer_manager.organize_materials",
-            text=f"整理材质 ({duplicate_count})",
+            text="清理材质槽",
             icon='BRUSH_DATA',
         )
         op_id = compact_row.operator(
@@ -433,8 +424,6 @@ def draw_material_management_section(layout, context):
             depress=scene.material_view_mode == 'ID',
         )
         op_id.mode = 'ID'
-
-        col.separator()
 
         view_row = col.row(align=True)
         view_row.scale_y = 1.15
@@ -479,17 +468,31 @@ def draw_material_management_section(layout, context):
 def draw_shortcut_section(layout, context):
     try:
         scene = context.scene
-        box = layout.box()
-        if not draw_section_header(box, scene, "show_shortcut_section", "快捷键", 'KEYINGSET', "直接修改"):
-            return
-
-        col = box.column(align=True)
-        col.label(text="空白表示未设置，点击按键框可录入快捷键", icon='INFO')
+        col = layout.column(align=True)
         if not C._addon_keymaps:
             col.label(text="快捷键槽位未注册，请重新启用插件", icon='ERROR')
             return
 
-        for keymap, item, label in C._addon_keymaps:
+        assigned = [
+            entry for entry in C._addon_keymaps
+            if getattr(entry[1], "type", "NONE") != "NONE"
+        ]
+        summary_row = col.row(align=True)
+        summary_row.label(text=f"已设置 {len(assigned)} / {len(C._addon_keymaps)}", icon='KEYINGSET')
+        summary_row.prop(
+            scene,
+            "show_unassigned_shortcuts",
+            text="显示未设置",
+            toggle=True,
+        )
+
+        show_all = getattr(scene, "show_unassigned_shortcuts", False)
+        visible = C._addon_keymaps if show_all else assigned
+        if not visible:
+            col.label(text="尚未设置快捷键，可勾选“显示未设置”后录入", icon='INFO')
+            return
+
+        for keymap, item, label in visible:
             row = col.row(align=True)
             row.label(text=label)
             SH.draw_shortcut_keymap_item(row, context, keymap, item)
@@ -500,27 +503,17 @@ def draw_shortcut_section(layout, context):
 def draw_layout_section(layout, context):
     try:
         layout.operator_context = 'INVOKE_DEFAULT'
-        scene = context.scene
-
-        box = layout.box()
-        if not draw_section_header(box, scene, "show_layout_section", "布局切换", 'WORKSPACE', "编辑器"):
-            return
-
-        col = box.column(align=True)
+        col = layout.column(align=True)
 
         uv_active = False
         shader_active = False
         managed_uv = False
         managed_shader = False
-        has_editor = False
-
         if context.screen and context.screen.areas:
             managed_uv = L.get_managed_editor_area(context.screen, C.LAYOUT_KIND_UV) is not None
             managed_shader = L.get_managed_editor_area(context.screen, C.LAYOUT_KIND_SHADER) is not None
             uv_active = U.is_uv_edit_active(context)
             shader_active = U.is_shader_edit_active(context)
-            has_editor = uv_active or shader_active
-
         row_buttons = col.row(align=True)
         row_buttons.scale_y = 1.35
 
@@ -556,36 +549,6 @@ def draw_layout_section(layout, context):
             status_row = col.row(align=True)
             status_row.label(text="检测到现有着色器编辑器", icon='INFO')
 
-        col.separator()
-
-        normal_row = col.row(align=True)
-        normal_row.scale_y = 1.18
-        for preset, label in (
-            ('180', "180"),
-            ('30', "30"),
-            ('60', "60"),
-            ('90', "90"),
-        ):
-            op = normal_row.operator(
-                "uv_layer_manager.set_normal_angle",
-                text=label,
-                depress=scene.normal_angle_preset == preset,
-            )
-            op.preset = preset
-
-        custom_row = col.row(align=True)
-        custom_row.prop(scene, "normal_angle_custom", text="")
-        op_custom = custom_row.operator(
-            "uv_layer_manager.set_normal_angle",
-            text="自定义",
-            depress=scene.normal_angle_preset == C.NORMAL_ANGLE_PRESET_CUSTOM,
-        )
-        op_custom.preset = C.NORMAL_ANGLE_PRESET_CUSTOM
-
-        if len(U.get_selected_mesh_objects(context)) == 0:
-            normal_row.enabled = False
-            custom_row.enabled = False
-
     except Exception as e:
         layout.label(text=f"UI绘制错误: {str(e)[:30]}", icon='ERROR')
 
@@ -610,7 +573,6 @@ class UV_LAYER_MANAGER_PT_panel(bpy.types.Panel):
         layout.operator_context = 'INVOKE_DEFAULT'
         try:
             draw_layout_section(layout, context)
-            draw_shortcut_section(layout, context)
         except Exception as e:
             layout.label(text=f"绘制错误: {e}", icon='ERROR')
 
@@ -624,38 +586,15 @@ class UV_LAYER_MANAGER_PT_uv_panel(bpy.types.Panel):
     bl_order = 1
 
     def draw_header(self, context):
-        selected_mesh_count = len(U.get_selected_mesh_objects(context))
-        self.layout.label(text=f"选中网格: {selected_mesh_count}", icon='MESH_DATA')
+        _obj, mesh = U.get_active_mesh(context)
+        uv_count = len(mesh.uv_layers) if mesh and mesh.uv_layers else 0
+        scene_max_count, _ = U.get_scene_max_uv_info(context.scene)
+        self.layout.label(text=f"{uv_count} / {scene_max_count}")
 
     def draw(self, context):
         layout = self.layout
         try:
             obj, mesh = U.get_active_mesh(context)
-            if obj is None or mesh is None:
-                col = layout.column(align=True)
-                scene_max_count, _ = U.get_scene_max_uv_info(context.scene)
-
-                row_info = col.row(align=True)
-                row_info.label(text="当前: 0")
-                row_info.label(text="/")
-                row_info.label(text=f"场景最大: {scene_max_count}")
-
-                col.separator()
-                draw_empty_uv_list(col)
-                col.separator()
-
-                row_edit = col.row(align=True)
-                row_edit.scale_y = 1.2
-                row_edit.enabled = False
-                row_edit.operator("uv_layer_manager.add", text="添加", icon='ADD')
-                row_edit.operator("uv_layer_manager.delete", text="删除", icon='REMOVE')
-
-                row_tools = col.row(align=True)
-                row_tools.scale_y = 1.2
-                row_tools.enabled = False
-                row_tools.operator("uv_layer_manager.sync", text="同步UV", icon='PASTEDOWN')
-                row_tools.operator("uv_layer_manager.select_max", text="选中最大模型", icon='OBJECT_DATA')
-                return
             draw_uv_section(layout, context, obj, mesh)
         except Exception as e:
             layout.label(text=f"绘制错误: {e}", icon='ERROR')
@@ -668,6 +607,10 @@ class UV_LAYER_MANAGER_PT_modeling_panel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "UV"
     bl_order = 2
+
+    def draw_header(self, context):
+        selected_mesh_count = len(U.get_selected_mesh_objects(context))
+        self.layout.label(text=f"已选 {selected_mesh_count} 个网格")
 
     def draw(self, context):
         layout = self.layout
@@ -685,10 +628,35 @@ class UV_LAYER_MANAGER_PT_material_panel(bpy.types.Panel):
     bl_category = "UV"
     bl_order = 3
 
+    def draw_header(self, context):
+        objects = U.get_selected_mesh_objects(context)
+        mode = "单" if len(objects) <= 1 else "多"
+        self.layout.label(text=f"{mode}选 | {len(objects)}个模型")
+
     def draw(self, context):
         layout = self.layout
         try:
             draw_material_management_section(layout, context)
+        except Exception as e:
+            layout.label(text=f"绘制错误: {e}", icon='ERROR')
+
+
+class UV_LAYER_MANAGER_PT_shortcut_panel(bpy.types.Panel):
+    bl_label = "快捷键"
+    bl_idname = "UV_LAYER_MANAGER_PT_shortcut_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "UV"
+    bl_order = 4
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.label(text="直接修改")
+
+    def draw(self, context):
+        layout = self.layout
+        try:
+            draw_shortcut_section(layout, context)
         except Exception as e:
             layout.label(text=f"绘制错误: {e}", icon='ERROR')
 
@@ -703,44 +671,21 @@ class UV_LAYER_MANAGER_MT_shortcut_menu(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
+        if context.mode == 'EDIT_MESH':
+            layout.operator("uv_layer_manager.select_by_angle", text="角度选择", icon='ORIENTATION_NORMAL')
+            layout.operator("uv_layer_manager.select_ngons", text="选择多边面", icon='SNAP_FACE')
+            return
 
-        layout.operator("uv_layer_manager.toggle_uv_editor", text="UV", icon='UV')
-        layout.operator("uv_layer_manager.toggle_shader_editor", text="着色器", icon='NODETREE')
-
+        layout.operator("uv_layer_manager.toggle_uv_editor", text="UV 编辑布局", icon='UV')
+        layout.operator("uv_layer_manager.toggle_shader_editor", text="着色器布局", icon='NODETREE')
         layout.separator()
-
-        for preset, label in (
-            ('180', "法向 180"),
-            ('30', "法向 30"),
-            ('60', "法向 60"),
-            ('90', "法向 90"),
-        ):
-            op = layout.operator("uv_layer_manager.set_normal_angle", text=label, icon='NORMALS_FACE')
-            op.preset = preset
-
-        layout.separator()
-
-        layout.operator("uv_layer_manager.add", text="UV 添加", icon='ADD')
-        layout.operator("uv_layer_manager.delete", text="UV 删除", icon='REMOVE')
-        layout.operator("uv_layer_manager.sync", text="同步 UV", icon='PASTEDOWN')
-        layout.operator("uv_layer_manager.select_max", text="选中最大模型", icon='OBJECT_DATA')
-
-        layout.separator()
-
-        layout.operator("uv_layer_manager.reset_uv_names", text="uv命名重置", icon='UV')
+        layout.operator("uv_layer_manager.reset_uv_names", text="重置 UV 命名", icon='UV')
         layout.operator("uv_layer_manager.snap_close_vertices", text="合并相近", icon='AUTOMERGE_OFF')
         layout.operator("uv_layer_manager.rotate_linked_duplicate", text="旋转复制", icon='DUPLICATE')
-
         layout.separator()
-
+        layout.operator("uv_layer_manager.clean_normals", text="清理法向与切线", icon='NORMALS_FACE')
         layout.operator("uv_layer_manager.add_material", text="新增材质", icon='ADD')
-        layout.operator("uv_layer_manager.organize_materials", text="整理材质", icon='BRUSH_DATA')
-        op_id = layout.operator("uv_layer_manager.toggle_vertex_color_view", text="材质ID", icon='COLOR')
-        op_id.mode = 'ID'
-        op_color = layout.operator("uv_layer_manager.toggle_vertex_color_view", text="顶点颜色", icon='GROUP_VCOL')
-        op_color.mode = 'COLOR'
-        op_alpha = layout.operator("uv_layer_manager.toggle_vertex_color_view", text="顶点alpha", icon='IMAGE_ALPHA')
-        op_alpha.mode = 'ALPHA'
+        layout.operator("uv_layer_manager.organize_materials", text="安全清理材质槽", icon='BRUSH_DATA')
 
 
 def draw_uv_layer_manager_shortcut_menu(self, context):

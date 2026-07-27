@@ -13,7 +13,7 @@ from . import utils as U
 
 class VertexColorState:
     """封装顶点颜色节点注入前保存的原始连接。"""
-    _links = {}  # {mat.as_pointer(): (from_node_name, socket_identifier, from_socket)}
+    _links = {}  # {mat.as_pointer(): (from_node_name, socket_identifier, socket_name)}
 
     @classmethod
     def save(cls, mat_ptr, data):
@@ -62,15 +62,22 @@ def _save_original_link(mat, color_socket):
     mat_ptr = mat.as_pointer()
     if VertexColorState.has(mat_ptr):
         return
-    if color_socket.links:
-        link = list(color_socket.links)[0]
-        from_node = link.from_node
-        from_socket = link.from_socket
-        socket_identifier = from_socket.identifier if hasattr(from_socket, 'identifier') else ""
-        VertexColorState.save(mat_ptr, (from_node.name, socket_identifier, from_socket))
+    if not color_socket.links:
+        VertexColorState.save(mat_ptr, (None, "", ""))
+        return
+    link = list(color_socket.links)[0]
+    from_socket = link.from_socket
+    VertexColorState.save(
+        mat_ptr,
+        (
+            link.from_node.name,
+            getattr(from_socket, "identifier", ""),
+            getattr(from_socket, "name", ""),
+        ),
+    )
 
 
-def _remove_uvlm_nodes_from_tree(node_tree, mat_ptr):
+def _remove_uvlm_nodes_from_tree(node_tree):
     if node_tree is None:
         return
     removed = False
@@ -78,11 +85,10 @@ def _remove_uvlm_nodes_from_tree(node_tree, mat_ptr):
         if node.name.startswith(C.UVLM_NODE_PREFIX):
             node_tree.nodes.remove(node)
             removed = True
-    VertexColorState.delete(mat_ptr)
     return removed
 
 
-def _inject_vertex_color_node(mat, mode):
+def _inject_vertex_color_node(mat, mode, attribute_name):
     node_tree = mat.node_tree
     if node_tree is None:
         return
@@ -96,7 +102,7 @@ def _inject_vertex_color_node(mat, mode):
         return
 
     _save_original_link(mat, color_socket)
-    _remove_uvlm_nodes_from_tree(node_tree, mat_ptr)
+    _remove_uvlm_nodes_from_tree(node_tree)
 
     for link_from in list(color_socket.links):
         node_tree.links.remove(link_from)
@@ -106,18 +112,13 @@ def _inject_vertex_color_node(mat, mode):
     vc_node.label = mat.name
     vc_node.location = (shader_node.location.x - 300, shader_node.location.y)
 
+    vc_node.layer_name = attribute_name or ""
+
     if mode == 'COLOR':
-        vc_node.layer_name = "Col"
         node_tree.links.new(vc_node.outputs["Color"], color_socket)
     elif mode == 'ALPHA':
-        vc_node.layer_name = "Col"
-        separate = node_tree.nodes.new('ShaderNodeSeparateColor')
-        separate.name = f"{C.UVLM_NODE_PREFIX}Sep_{mat.name}"
-        separate.location = (vc_node.location.x + 150, vc_node.location.y)
-        node_tree.links.new(vc_node.outputs["Color"], separate.inputs["Color"])
-        node_tree.links.new(separate.outputs["Alpha"], color_socket)
+        node_tree.links.new(vc_node.outputs["Alpha"], color_socket)
     elif mode == 'ID':
-        vc_node.layer_name = "Col"
         separate = node_tree.nodes.new('ShaderNodeSeparateColor')
         separate.name = f"{C.UVLM_NODE_PREFIX}Sep_{mat.name}"
         separate.location = (vc_node.location.x + 150, vc_node.location.y)
@@ -132,14 +133,21 @@ def _inject_vertex_color_node(mat, mode):
 
 
 def _apply_vertex_color_nodes(context, mode):
+    touched_materials = set()
     for obj in U.get_selected_mesh_objects(context):
+        attribute = get_active_color_attribute(obj.data)
+        attribute_name = attribute.name if attribute is not None else ""
         for mat_slot in obj.material_slots:
             mat = mat_slot.material
             if mat is None:
                 continue
             if not mat.use_nodes:
                 continue
-            _inject_vertex_color_node(mat, mode)
+            mat_ptr = mat.as_pointer()
+            if mat_ptr in touched_materials:
+                continue
+            touched_materials.add(mat_ptr)
+            _inject_vertex_color_node(mat, mode, attribute_name)
 
 
 def has_uvlm_vertex_color_nodes(obj):
@@ -155,61 +163,84 @@ def has_uvlm_vertex_color_nodes(obj):
     return False
 
 
+def _find_output_socket(node, identifier, name):
+    if node is None:
+        return None
+    for socket in node.outputs:
+        if identifier and getattr(socket, "identifier", "") == identifier:
+            return socket
+    return node.outputs.get(name) if name else None
+
+
+def _restore_material_vertex_color_nodes(mat):
+    if mat is None or not mat.use_nodes or mat.node_tree is None:
+        return False
+    mat_ptr = mat.as_pointer()
+    state = VertexColorState.get(mat_ptr)
+    removed = _remove_uvlm_nodes_from_tree(mat.node_tree)
+    if state is None:
+        return bool(removed)
+
+    shader_node = _find_shader_node(mat.node_tree)
+    color_socket = _get_color_socket(shader_node)
+    if color_socket is not None:
+        for link in list(color_socket.links):
+            mat.node_tree.links.remove(link)
+        from_node_name, socket_identifier, socket_name = state
+        from_node = mat.node_tree.nodes.get(from_node_name) if from_node_name else None
+        from_socket = _find_output_socket(from_node, socket_identifier, socket_name)
+        if from_socket is not None:
+            try:
+                mat.node_tree.links.new(from_socket, color_socket)
+            except (RuntimeError, ReferenceError):
+                pass
+    VertexColorState.delete(mat_ptr)
+    return True
+
+
 def _clear_selected_vertex_color_nodes(context):
+    touched_materials = set()
     for obj in U.get_selected_mesh_objects(context):
-        if obj.type != 'MESH':
-            continue
         for mat_slot in obj.material_slots:
             mat = mat_slot.material
-            if mat is None or not mat.use_nodes:
+            if mat is None:
                 continue
             mat_ptr = mat.as_pointer()
-            _remove_uvlm_nodes_from_tree(mat.node_tree, mat_ptr)
-            if VertexColorState.has(mat_ptr):
-                from_node_name, socket_identifier, from_socket = VertexColorState.get(mat_ptr)
-                shader_node = _find_shader_node(mat.node_tree)
-                if shader_node is not None:
-                    color_socket = _get_color_socket(shader_node)
-                    if color_socket is not None:
-                        for link in list(color_socket.links):
-                            mat.node_tree.links.remove(link)
-                        from_node = mat.node_tree.nodes.get(from_node_name)
-                        if from_node and from_socket:
-                            try:
-                                mat.node_tree.links.new(from_socket, color_socket)
-                            except (RuntimeError, ReferenceError):
-                                pass
-                VertexColorState.delete(mat_ptr)
+            if mat_ptr in touched_materials:
+                continue
+            touched_materials.add(mat_ptr)
+            _restore_material_vertex_color_nodes(mat)
 
 
-def set_material_view_mode(context, mode):
+def restore_all_vertex_color_nodes():
+    for mat in bpy.data.materials:
+        if mat is not None:
+            _restore_material_vertex_color_nodes(mat)
+    VertexColorState.clear_all()
+
+
+def set_material_view_mode(context, mode, force=False):
+    from . import material_id as MID
+
     scene = context.scene
     current_mode = getattr(scene, "material_view_mode", 'MATERIAL')
-    next_mode = 'MATERIAL' if current_mode == mode else mode
+    next_mode = mode if force or current_mode != mode else 'MATERIAL'
+
+    MID.restore_material_id_colors(context)
+    _clear_selected_vertex_color_nodes(context)
 
     if next_mode == 'MATERIAL':
-        _clear_selected_vertex_color_nodes(context)
-        U.set_material_color_view(context)
+        pass
     elif next_mode == 'ID':
-        from . import material_id as MID
-        MID.restore_material_id_colors(context)
         MID.prepare_material_id_colors(context)
-        U.set_material_color_view(context)
     elif next_mode in ('COLOR', 'ALPHA'):
-        from . import material_id as MID
-        MID.restore_material_id_colors(context)
-        _clear_selected_vertex_color_nodes(context)
         _apply_vertex_color_nodes(context, next_mode)
-        U.set_material_color_view(context)
     else:
-        # Fallback: MATERIAL
-        _clear_selected_vertex_color_nodes(context)
-        U.set_material_color_view(context)
         next_mode = 'MATERIAL'
 
+    updated = U.set_material_color_view(context)
     scene.material_view_mode = next_mode
-    # 不在此处调用 tag_all_view3d_redraw — 由调用者负责
-    return 0, next_mode
+    return updated, next_mode
 
 
 def get_active_color_attribute(mesh):

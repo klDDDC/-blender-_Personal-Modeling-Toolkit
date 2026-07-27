@@ -60,6 +60,10 @@ class MaterialIdState:
     @classmethod
     def clear_all(cls):
         cls._original_colors.clear()
+        cls.clear_preview_resources()
+
+    @classmethod
+    def clear_preview_resources(cls):
         if cls._preview_collection is not None:
             import bpy.utils.previews
             bpy.utils.previews.remove(cls._preview_collection)
@@ -182,6 +186,71 @@ def get_material_id_color(material, index=0):
     return (red, green, blue, 1.0)
 
 
+def get_material_swatch_color(order):
+    """Return one of 50 high-separation UI colors for a persistent order."""
+    slot = max(int(order), 0) % C.MATERIAL_SWATCH_COUNT
+    hue = (slot * 0.618033988749895) % 1.0
+    saturation = (0.82, 0.72, 0.90, 0.76, 0.86)[slot % 5]
+    value = (0.92, 0.82, 0.96, 0.76, 0.88)[(slot // 10) % 5]
+    red, green, blue = colorsys.hsv_to_rgb(hue, saturation, value)
+    return (red, green, blue, 1.0)
+
+
+def _fallback_material_swatch_order(material):
+    library = getattr(material, "library", None)
+    library_path = getattr(library, "filepath", "") if library else ""
+    seed = f"{library_path}|{material.name}".encode("utf-8", errors="replace")
+    return zlib.crc32(seed) % C.MATERIAL_SWATCH_COUNT
+
+
+def _next_material_swatch_order():
+    assigned_orders = [
+        int(getattr(material, "uvlm_swatch_order", -1))
+        for material in bpy.data.materials
+        if int(getattr(material, "uvlm_swatch_order", -1)) >= 0
+    ]
+    scene_counters = [
+        int(getattr(scene, "uvlm_next_swatch_order", 0))
+        for scene in bpy.data.scenes
+    ]
+    return max([0, *(order + 1 for order in assigned_orders), *scene_counters])
+
+
+def ensure_material_swatch_order(material):
+    """Assign a persistent order once; existing material colors never shift."""
+    if material is None:
+        return 0
+    current = int(getattr(material, "uvlm_swatch_order", -1))
+    if current >= 0:
+        return current
+
+    order = _next_material_swatch_order()
+    try:
+        material.uvlm_swatch_order = order
+    except (AttributeError, RuntimeError, TypeError):
+        return _fallback_material_swatch_order(material)
+
+    next_order = order + 1
+    for scene in bpy.data.scenes:
+        try:
+            if int(getattr(scene, "uvlm_next_swatch_order", 0)) < next_order:
+                scene.uvlm_next_swatch_order = next_order
+        except (AttributeError, RuntimeError, TypeError):
+            continue
+    return order
+
+
+def ensure_all_material_swatch_orders():
+    for material in bpy.data.materials:
+        ensure_material_swatch_order(material)
+
+
+def get_material_swatch_icon(material):
+    order = ensure_material_swatch_order(material)
+    color = get_material_swatch_color(order)
+    return get_color_preview_icon(color, f"swatch_{material.as_pointer()}_{order % C.MATERIAL_SWATCH_COUNT}")
+
+
 def get_id_color_preset(index):
     row = index // C.ID_COLOR_COLUMNS
     column = index % C.ID_COLOR_COLUMNS
@@ -291,18 +360,27 @@ def get_color_preview_icon(color, name):
 
 
 def precache_material_icons():
-    """预生成所有材质的 ID 颜色图标，避免 UI draw 时逐帧生成 PNG"""
+    """Assign and cache newly created materials, then monitor for additions."""
     try:
+        current_pointers = set()
         for material in bpy.data.materials:
             if material is None:
                 continue
-            get_color_preview_icon(get_material_id_color(material), f"mat_{material.as_pointer()}")
+            material_pointer = material.as_pointer()
+            current_pointers.add(material_pointer)
+            if material_pointer in C._material_swatch_known_pointers:
+                continue
+            get_material_swatch_icon(material)
+            get_color_preview_icon(get_material_id_color(material), f"mat_{material_pointer}")
+        C._material_swatch_known_pointers = current_pointers
     except Exception:
         pass
+    return 1.0
 
 
 def clear_id_color_previews():
-    MaterialIdState.clear_all()
+    C._material_swatch_known_pointers.clear()
+    MaterialIdState.clear_preview_resources()
 
 
 def sync_id_color_preset_props():
@@ -359,6 +437,20 @@ def toggle_single_material_id_color(context, material, index):
 # ============================================================
 
 def register_properties():
+    bpy.types.Material.uvlm_swatch_order = bpy.props.IntProperty(
+        name="材质色块序号",
+        description="材质首次出现时分配的固定色块序号",
+        default=-1,
+        min=-1,
+        options={'HIDDEN'},
+    )
+    bpy.types.Scene.uvlm_next_swatch_order = bpy.props.IntProperty(
+        name="下一个材质色块序号",
+        description="为新增材质分配稳定色块使用的递增序号",
+        default=0,
+        min=0,
+        options={'HIDDEN'},
+    )
     bpy.types.Material.uvlm_id_color = bpy.props.FloatVectorProperty(
         name="材质ID颜色",
         description="材质管理面板使用的ID显示颜色",
@@ -407,6 +499,10 @@ def register_properties():
 
 
 def unregister_properties():
+    if hasattr(bpy.types.Material, 'uvlm_swatch_order'):
+        del bpy.types.Material.uvlm_swatch_order
+    if hasattr(bpy.types.Scene, 'uvlm_next_swatch_order'):
+        del bpy.types.Scene.uvlm_next_swatch_order
     if hasattr(bpy.types.Material, 'uvlm_id_color'):
         del bpy.types.Material.uvlm_id_color
     if hasattr(bpy.types.Material, 'uvlm_id_color_is_custom'):

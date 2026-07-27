@@ -21,6 +21,7 @@ NORMAL_ANGLE_PRESET_CUSTOM = "CUSTOM"
 ID_COLOR_COLUMNS = 9
 ID_COLOR_ROWS = 7
 ID_COLOR_PRESET_COUNT = ID_COLOR_COLUMNS * ID_COLOR_ROWS
+MATERIAL_SWATCH_COUNT = 50
 DEFAULT_MATERIAL_ID_COLOR = (0.95, 0.27, 0.27, 1.0)
 NORMAL_ANGLE_MODIFIER_NAME = "UVLM 法向角度"
 
@@ -39,6 +40,8 @@ _duplicate_material_map_cache = None
 _duplicate_material_map_version = -1
 _draw_cache = {}
 _draw_cache_frame = -1
+_material_group_expanded = set()
+_material_swatch_known_pointers = set()
 
 
 SHORTCUT_DEFS = (
@@ -46,7 +49,6 @@ SHORTCUT_DEFS = (
     ("着色器", "uv_layer_manager.toggle_shader_editor", {}),
     ("法向 180", "uv_layer_manager.set_normal_angle", {"preset": "180"}),
     ("法向 90", "uv_layer_manager.set_normal_angle", {"preset": "90"}),
-    ("法向 60", "uv_layer_manager.set_normal_angle", {"preset": "60"}),
     ("法向 30", "uv_layer_manager.set_normal_angle", {"preset": "30"}),
     ("法向 自定义", "uv_layer_manager.set_normal_angle", {"preset": NORMAL_ANGLE_PRESET_CUSTOM}),
     ("UV 添加", "uv_layer_manager.add", {}),

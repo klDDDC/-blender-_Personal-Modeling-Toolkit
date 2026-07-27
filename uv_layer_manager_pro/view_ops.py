@@ -23,9 +23,7 @@ class UV_LAYER_MANAGER_OT_toggle_uv_editor(bpy.types.Operator):
 
     def invoke(self, context, event):
         mgr = L.LayoutManager(C.LAYOUT_KIND_UV, "UV编辑器")
-        if mgr.should_confirm_open(context):
-            return context.window_manager.invoke_confirm(self, event)
-        return self.execute(context)
+        return mgr.invoke(context, event)
 
     def execute(self, context):
         mgr = L.LayoutManager(C.LAYOUT_KIND_UV, "UV编辑器")
@@ -53,9 +51,7 @@ class UV_LAYER_MANAGER_OT_toggle_shader_editor(bpy.types.Operator):
 
     def invoke(self, context, event):
         mgr = L.LayoutManager(C.LAYOUT_KIND_SHADER, "着色器编辑器")
-        if mgr.should_confirm_open(context):
-            return context.window_manager.invoke_confirm(self, event)
-        return self.execute(context)
+        return mgr.invoke(context, event)
 
     def execute(self, context):
         mgr = L.LayoutManager(C.LAYOUT_KIND_SHADER, "着色器编辑器")

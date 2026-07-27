@@ -139,10 +139,17 @@ def test_uv_list_clicks():
 def test_modeling_clicks_and_dialogs():
     reset_scene()
     obj = make_cube()
-    bpy.context.scene.close_snap_distance = 0.001
+    bpy.context.scene.close_snap_distance_cm = 0.1
     assert_ok(bpy.ops.uv_layer_manager.reset_uv_names("INVOKE_DEFAULT") == {"FINISHED"}, "reset_uv_names failed")
-    assert_ok(bpy.ops.uv_layer_manager.set_close_snap_distance("INVOKE_DEFAULT") == {"RUNNING_MODAL"}, "distance dialog did not open")
-    assert_ok(bpy.ops.uv_layer_manager.set_close_snap_distance("EXEC_DEFAULT", distance=0.002) == {"FINISHED"}, "distance execute failed")
+    distance_result = bpy.ops.uv_layer_manager.set_close_snap_distance("INVOKE_DEFAULT")
+    if bpy.app.background:
+        assert_ok(
+            bpy.ops.uv_layer_manager.set_close_snap_distance("EXEC_DEFAULT", distance_cm=0.1, vertex_group='__NONE__') == {"FINISHED"},
+            "distance settings did not execute",
+        )
+    else:
+        assert_ok(distance_result == {"RUNNING_MODAL"}, "distance dialog did not open")
+    assert_ok(bpy.ops.uv_layer_manager.set_close_snap_distance("EXEC_DEFAULT", distance_cm=0.2, vertex_group='__NONE__') == {"FINISHED"}, "distance execute failed")
     assert_ok(bpy.ops.uv_layer_manager.snap_close_vertices("INVOKE_DEFAULT") == {"FINISHED"}, "snap_close_vertices failed")
     assert_ok(bpy.ops.uv_layer_manager.rotate_linked_duplicate("INVOKE_DEFAULT", axis="Z", count=2, total_angle=120) == {"FINISHED"}, "rotate duplicate failed")
     make_ngon()
@@ -168,15 +175,24 @@ def test_modeling_clicks_and_dialogs():
         face.select = True
         break
     bmesh.update_edit_mesh(bpy.context.object.data)
-    assert_ok(bpy.ops.uv_layer_manager.set_select_angle("INVOKE_DEFAULT") == {"RUNNING_MODAL"}, "angle dialog did not open")
-    assert_ok(bpy.ops.uv_layer_manager.set_select_angle("EXEC_DEFAULT", angle=45) == {"FINISHED"}, "angle execute failed")
+    angle_result = bpy.ops.uv_layer_manager.set_select_angle("INVOKE_DEFAULT")
+    if bpy.app.background:
+        assert_ok(bpy.ops.uv_layer_manager.set_select_angle("EXEC_DEFAULT", angle=45) == {"FINISHED"}, "angle execute failed")
+    else:
+        assert_ok(angle_result == {"RUNNING_MODAL"}, "angle dialog did not open")
     assert_ok(bpy.ops.uv_layer_manager.select_by_angle("INVOKE_DEFAULT") == {"FINISHED"}, "select_by_angle failed")
     bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.select_all(action="DESELECT")
     normal_obj = make_cube("UVLM_UI_Normal")
     normal_obj.select_set(True)
     bpy.context.view_layer.objects.active = normal_obj
-    assert_ok(bpy.ops.uv_layer_manager.set_normal_angle("INVOKE_DEFAULT", preset="60") == {"FINISHED"}, "normal angle failed")
+    assert_ok(bpy.ops.uv_layer_manager.set_normal_angle("EXEC_DEFAULT", preset="60") == {"CANCELLED"}, "removed 60 preset is still accepted")
+    assert_ok(bpy.ops.uv_layer_manager.set_normal_angle("INVOKE_DEFAULT", preset="90") == {"FINISHED"}, "normal angle failed")
+    assert_ok(
+        bpy.ops.uv_layer_manager.set_normal_angle("EXEC_DEFAULT", preset="CUSTOM", angle=42.5) == {"FINISHED"},
+        "custom normal angle failed",
+    )
+    assert_ok(abs(bpy.context.scene.normal_angle_custom - 42.5) < 1e-6, "custom normal angle was not stored")
 
 
 def test_material_clicks_and_dialogs():
@@ -189,7 +205,9 @@ def test_material_clicks_and_dialogs():
     assert_ok(bpy.ops.uv_layer_manager.select_material_slot("INVOKE_DEFAULT", index=0) == {"FINISHED"}, "select material slot failed")
     assert_ok(bpy.ops.uv_layer_manager.assign_material_slot("INVOKE_DEFAULT", index=0) == {"FINISHED"}, "assign slot failed")
     assert_ok(bpy.ops.uv_layer_manager.edit_material_base_color("INVOKE_DEFAULT") == {"FINISHED"}, "edit base color failed")
-    assert_ok(bpy.ops.uv_layer_manager.edit_material_id_color("INVOKE_DEFAULT", index=0) == {"RUNNING_MODAL"}, "ID color dialog did not open")
+    id_dialog_result = bpy.ops.uv_layer_manager.edit_material_id_color("INVOKE_DEFAULT", index=0)
+    if not bpy.app.background:
+        assert_ok(id_dialog_result == {"RUNNING_MODAL"}, "ID color dialog did not open")
     assert_ok(bpy.ops.uv_layer_manager.set_material_id_preset("INVOKE_DEFAULT", index=0, preset_index=3) == {"FINISHED"}, "ID preset failed")
     assert_ok(bpy.ops.uv_layer_manager.edit_material_id_color("EXEC_DEFAULT", index=0) == {"FINISHED"}, "ID color execute failed")
     assert_ok(bpy.ops.uv_layer_manager.toggle_material_id_color("INVOKE_DEFAULT", index=0) == {"FINISHED"}, "single material ID toggle failed")
@@ -214,6 +232,25 @@ def test_right_click_menu_and_shortcut_entries():
     assert_ok(len(C._addon_keymaps) == len(C.SHORTCUT_DEFS), "shortcut entries not registered")
     menu_cls = bpy.types.UV_LAYER_MANAGER_MT_shortcut_menu
     assert_ok(menu_cls.bl_idname == "UV_LAYER_MANAGER_MT_shortcut_menu", "menu class missing")
+    assert_ok(hasattr(bpy.types, "UV_LAYER_MANAGER_PT_shortcut_panel"), "shortcut panel missing")
+    shortcut_panel = bpy.types.UV_LAYER_MANAGER_PT_shortcut_panel
+    assert_ok("DEFAULT_CLOSED" in shortcut_panel.bl_options, "shortcut panel should be closed by default")
+    assert_ok(all(label != "法向 60" for label, _operator, _props in C.SHORTCUT_DEFS), "60-degree shortcut still registered")
+    for prop_name in (
+        "show_layout_section",
+        "show_uv_section",
+        "show_modeling_section",
+        "show_material_section",
+        "show_shortcut_section",
+    ):
+        assert_ok(not hasattr(bpy.types.Scene, prop_name), f"obsolete nested-fold property remains: {prop_name}")
+    for class_name in (
+        "UV_LAYER_MANAGER_OT_flatten_u",
+        "UV_LAYER_MANAGER_OT_flatten_v",
+        "UV_LAYER_MANAGER_OT_pin_verts",
+        "UV_LAYER_MANAGER_OT_unpin_verts",
+    ):
+        assert_ok(not hasattr(bpy.types, class_name), f"removed class still registered: {class_name}")
 
 
 def finish(addon):

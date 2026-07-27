@@ -69,7 +69,7 @@ def main():
         except Exception as exc:
             failures.append({"index": index, "error": str(exc), "traceback": traceback.format_exc()})
 
-    # Invalid index probes: these should ideally cancel, but current operator finishes silently.
+    # Invalid index probes must cancel without changing the active material.
     invalid_results = {}
     for invalid_index in (-1, C.ID_COLOR_PRESET_COUNT, C.ID_COLOR_PRESET_COUNT + 10):
         try:

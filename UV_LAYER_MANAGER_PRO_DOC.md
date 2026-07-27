@@ -5,6 +5,17 @@
 
 ---
 
+## 本地构建与安装
+
+```powershell
+python build_release.py --output dist
+python install_addon.py --blender-version 4.1
+```
+
+`install_addon.py` 会先生成与 `bl_info` 版本一致的 ZIP，在临时目录校验插件根目录后再替换 Blender 用户插件目录中的旧副本；目标目录会在 Blender 插件根目录中重新创建以继承正确权限，替换失败时会恢复原安装。该流程不执行 Git 提交或推送。
+
+---
+
 ## 一、文件结构
 
 ```
@@ -43,7 +54,7 @@ uv_layer_manager_pro/
 | `uv_on_left` | Bool | True | 旧版兼容，现固定编辑器在左侧 |
 
 ### 2.3 快捷键定义 (`constants.py` — `SHORTCUT_DEFS`)
-数组中有 20 个预定义快捷键槽位（不绑定默认按键），覆盖：UV切换、着色器切换、法向预设×5、UV添加/删除/同步、选中最大模型、uv命名重置、合并相近、旋转复制、新增材质、整理材质、材质ID/顶点颜色/顶点alpha。
+数组中有 20 个预定义快捷键槽位（不绑定默认按键），覆盖：UV切换、着色器切换、法向预设×5、UV添加/删除/同步、选中最大模型、uv命名重置、合并相近、旋转复制、新增材质、整理材质、材质ID/顶点颜色/顶点alpha。快捷键面板默认只显示已分配按键，勾选“显示未设置”后才展开全部槽位。
 
 ---
 
@@ -84,21 +95,19 @@ uv_layer_manager_pro/
 |---|---|---|---|
 | `uv_layout_active` | Bool | False | UV布局是否激活 |
 | `shader_layout_active` | Bool | False | 着色器布局是否激活 |
-| `show_layout_section` | Bool | True | 折叠段-布局 |
-| `show_uv_section` | Bool | True | 折叠段-UV |
-| `show_modeling_section` | Bool | False | 折叠段-建模 |
-| `show_material_section` | Bool | True | 折叠段-材质 |
-| `show_shortcut_section` | Bool | False | 折叠段-快捷键 |
+| `show_unassigned_shortcuts` | Bool | False | 快捷键面板是否显示未分配按键的槽位 |
 | `material_manager_material` | Pointer(Material) | None | 材质管理目标材质 |
 | `material_view_mode` | Enum | MATERIAL | 当前显示模式: MATERIAL/COLOR/ALPHA/ID/SINGLE_ID |
-| `normal_angle_preset` | Enum | 180 | 法向预设: 180/30/60/90/CUSTOM |
+| `normal_angle_preset` | Enum | 180 | 法向预设: 180/30/90/CUSTOM |
 | `normal_angle_custom` | Float(0-180) | 180 | 自定义法向角度 |
 | `close_snap_distance` | Float(0+) | 0.001 | 合并相近的距离阈值 |
 | `uvlm_select_angle_threshold` | Float(0-180) | 30 | 角度选择的面法向阈值 |
+| `uvlm_next_swatch_order` | Int | 0 | 为新增材质分配持久色块序号；删除材质不会回退 |
 
 ### 4.2 Material 属性
 | 属性 | 类型 | 默认 | 说明 |
 |---|---|---|---|
+| `uvlm_swatch_order` | Int | -1 | 材质首次出现时分配的持久色块序号，显示颜色按50色循环 |
 | `uvlm_id_color` | FloatVector(4) | DEFAULT_MATERIAL_ID_COLOR | 材质ID颜色 |
 | `uvlm_id_color_is_custom` | Bool | False | 是否使用自定义ID颜色 |
 
@@ -139,23 +148,20 @@ uv_layer_manager_pro/
 | 函数 | 位置 | 内容 |
 |---|---|---|
 | `draw_empty_uv_list` | 空态 | 4行空白占位 |
-| `draw_status_card` | 仪表盘 | 带图标+值的装饰卡 |
-| `draw_top_dashboard` | 面板顶部 | 3卡片: 网格数 / UV层数(当前/场景最大) / 材质槽数 |
-| `draw_section_header` | 各段 | 可折叠标题行（DISCLOSURE_TRI图标） |
-| `draw_empty_state` | 空态 | 信息提示框 |
 | **`draw_uv_section`** | UV面板 | → 剪贴板状态 → 列表 → 添加/删除按钮(带上限禁用) → 同步/选中最大 |
-| **`draw_modeling_tools_section`** | 建模面板 | → uv命名重置 → 合并相近(带设置) → 旋转复制 → 大于4边面 → 角度选择(带当前阈值) |
-| **`draw_material_management_section`** | 材质面板 | → 材质槽列表 → 添加(+) → 整理材质(显示重复数) → 材质ID → 顶点颜色/alpha → 颜色属性列表(≤6个) |
+| **`draw_modeling_tools_section`** | 建模面板 | → 单行法向角度预设/只读自定义值/自定义按钮 → 两列建模操作 |
+| **`draw_material_management_section`** | 材质面板 | → 固定50色循环材质色块/名称列表 → 添加(+) → 整理材质 → 材质ID → 顶点颜色/alpha → 颜色属性列表(≤6个) |
 | **`draw_shortcut_section`** | 快捷键面板 | → 每个快捷键槽位: 标签 + 按键映射元(U.draw_shortcut_keymap_item) |
-| **`draw_layout_section`** | 布局面板 | → UV/着色器切换按钮(带depress) → 法向预设4按钮+自定义滑块 |
+| **`draw_layout_section`** | 布局面板 | → UV/着色器切换按钮(带depress)与当前编辑器状态 |
 
 ### 5.3 面板 (Panel)
 | 类名 | bl_idname | 排序 | 说明 |
 |---|---|---|---|
-| `UV_LAYER_MANAGER_PT_panel` | UV_LAYER_MANAGER_PT_panel | 0 | 主面板（全部section顺序排列） |
+| `UV_LAYER_MANAGER_PT_panel` | UV_LAYER_MANAGER_PT_panel | 0 | 编辑器布局切换 |
 | `UV_LAYER_MANAGER_PT_uv_panel` | UV_LAYER_MANAGER_PT_uv_panel | 1 | UV层管理（独立面板） |
 | `UV_LAYER_MANAGER_PT_modeling_panel` | UV_LAYER_MANAGER_PT_modeling_panel | 2 | 建模工具（独立面板） |
 | `UV_LAYER_MANAGER_PT_material_panel` | UV_LAYER_MANAGER_PT_material_panel | 3 | 材质管理（独立面板） |
+| `UV_LAYER_MANAGER_PT_shortcut_panel` | UV_LAYER_MANAGER_PT_shortcut_panel | 4 | 快捷键（独立面板，默认折叠） |
 
 ### 5.4 菜单 (Menu)
 | 类名 | 说明 |
@@ -187,7 +193,7 @@ uv_layer_manager_pro/
 | 操作符 | bl_idname | 快捷键名 | 说明 |
 |---|---|---|---|
 | `OT_reset_uv_names` | `uv_layer_manager.reset_uv_names` | "uv命名重置" | 将选中模型的UV层重置为3层并重命名为 `uvmap1`/`2`/`3` |
-| `OT_snap_close_vertices` | `uv_layer_manager.snap_close_vertices` | "合并相近" | 世界空间下，**只处理边界/锐边/缝合边**顶点，按距离阈值合并到平均位置 |
+| `OT_snap_close_vertices` | `uv_layer_manager.snap_close_vertices` | "合并相近" | 世界空间下处理边界/锐边/选中顶点；指定顶点组时严格限制在该对象的正权重组成员内，按距离阈值移动到平均位置 |
 | `OT_set_close_snap_distance` | `uv_layer_manager.set_close_snap_distance` | — | 弹出对话框设置合并距离阈值 |
 | `OT_rotate_linked_duplicate` | `uv_layer_manager.rotate_linked_duplicate` | "旋转复制" | 以游标为圆心120°旋转复制选中模型并关联UV |
 | `OT_select_ngons` | `uv_layer_manager.select_ngons` | "大于4边面" | 选中网格中边数>4的面 |
@@ -333,7 +339,7 @@ uv_layer_manager_pro/
 | 函数 | 用途 |
 |---|---|
 | `get_close_snap_distance(scene)` | 获取合并距离阈值 |
-| `get_eligible_close_snap_vertices(mesh)` | 获取合格顶点（边界/锐边/缝合边） |
+| `get_eligible_close_snap_vertices(obj)` | 获取合格顶点；指定顶点组时按对象级正权重成员严格过滤 |
 | `snap_close_vertices_in_objects(objects, distance)` | **核心算法**：世界空间3D格网空间哈希聚类合并（只合并边界/锐边/缝合边顶点，不影响内部网格） |
 
 ### 7.8 快捷键工具

@@ -135,16 +135,41 @@ def _set_smooth_by_angle_modifier_inputs(mod, angle_rad):
             continue
 
 
-def apply_normal_angle_modifier(obj, angle_degrees):
+def clear_custom_normal_data(obj):
+    """Remove custom split normals and release calculated tangent data."""
+    if obj is None or obj.type != 'MESH' or obj.data is None:
+        return False
+    mesh = obj.data
+    selected_objects = list(bpy.context.selected_objects)
+    active_object = bpy.context.view_layer.objects.active
+    had_custom = bool(getattr(mesh, "has_custom_normals", False))
+    try:
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        if had_custom:
+            bpy.ops.mesh.customdata_custom_splitnormals_clear()
+    finally:
+        bpy.ops.object.select_all(action='DESELECT')
+        for selected in selected_objects:
+            if selected.name in bpy.data.objects:
+                selected.select_set(True)
+        if active_object and active_object.name in bpy.data.objects:
+            bpy.context.view_layer.objects.active = active_object
+    try:
+        mesh.free_tangents()
+    except (AttributeError, RuntimeError):
+        pass
+    mesh.update()
+    return had_custom
+
+
+def apply_normal_angle_modifier(obj, angle_degrees, clear_custom=True):
     """解锁自定义法线，保留锐边，并添加/更新 Smooth by Angle 修改器。"""
     mesh = obj.data
 
-    # 解锁自定义法线，不主动改已有锐边。
-    if hasattr(mesh, "has_custom_normals") and mesh.has_custom_normals:
-        try:
-            mesh.normals_split_custom_set([(0.0, 0.0, 0.0)] * len(mesh.loops))
-        except Exception:
-            pass
+    if clear_custom:
+        clear_custom_normal_data(obj)
 
     # 平滑着色：只设置面为 smooth，不写入或清除已有锐边。
     for poly in mesh.polygons:
@@ -228,9 +253,8 @@ def register_properties():
         items=(
             ('180', "180", "默认：最大程度放松法向角度"),
             ('30', "30", "硬表面常用锐利角度"),
-            ('60', "60", "中等平滑角度"),
             ('90', "90", "较宽松的硬边角度"),
-            (C.NORMAL_ANGLE_PRESET_CUSTOM, "自定义", "使用下方滑块指定角度"),
+            (C.NORMAL_ANGLE_PRESET_CUSTOM, "自定义", "使用自定义角度"),
         ),
         default='180',
     )
