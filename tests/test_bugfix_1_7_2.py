@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """验证 v1.7.2 两个补充修复。用法：
-blender --background --python test_bugfix_1_7_2.py
+blender --background --python tests/test_bugfix_1_7_2.py
 """
 import json
 import os
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import bpy
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

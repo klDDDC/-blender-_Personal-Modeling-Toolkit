@@ -9,7 +9,7 @@ from pathlib import Path
 import zipfile
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 ADDON_DIR = ROOT / "uv_layer_manager_pro"
 
 

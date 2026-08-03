@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """验证「斜向拉直」操作符：选中顶点投影到最远两点连成的直线。用法：
-blender --background --python test_straighten_vertices.py
+blender --background --python tests/test_straighten_vertices.py
 """
 import sys
 import math
@@ -10,7 +10,7 @@ import bpy
 import bmesh
 from mathutils import Vector
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

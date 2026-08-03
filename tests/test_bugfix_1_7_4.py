@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """验证 v1.7.4 场景级重复槽位合并。用法：
-blender --background --python test_bugfix_1_7_4.py
+blender --background --python tests/test_bugfix_1_7_4.py
 """
 import sys
 from pathlib import Path
 
 import bpy
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

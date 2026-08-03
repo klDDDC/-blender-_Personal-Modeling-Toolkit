@@ -1,6 +1,6 @@
 """Quick debug: check if material_ops has unregister_properties"""
 import importlib, sys, os
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 mod = importlib.import_module("uv_layer_manager_pro.material_ops")

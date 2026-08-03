@@ -8,11 +8,11 @@
 ## 本地构建与安装
 
 ```powershell
-python build_release.py --output dist
-python install_addon.py --blender-version 4.1
+python tools/build_release.py --output dist
+python tools/install_addon.py --blender-version 4.1
 ```
 
-`install_addon.py` 会先生成与 `bl_info` 版本一致的 ZIP，在临时目录校验插件根目录后再替换 Blender 用户插件目录中的旧副本；目标目录会在 Blender 插件根目录中重新创建以继承正确权限，替换失败时会恢复原安装。该流程不执行 Git 提交或推送。
+`tools/install_addon.py` 会先生成与 `bl_info` 版本一致的 ZIP，在临时目录校验插件根目录后再替换 Blender 用户插件目录中的旧副本；目标目录会在 Blender 插件根目录中重新创建以继承正确权限，替换失败时会恢复原安装。该流程不执行 Git 提交或推送。
 
 ---
 

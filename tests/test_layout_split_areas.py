@@ -2,14 +2,14 @@
 """验证布局分割后区域识别：新区域作为编辑器、原区域保留为 3D 视图。
 
 用法（需在隔离的 Blender 用户配置下运行，避免加载真实插件）：
-blender --background --python test_layout_split_areas.py
+blender --background --python tests/test_layout_split_areas.py
 """
 import sys
 from pathlib import Path
 
 import bpy
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

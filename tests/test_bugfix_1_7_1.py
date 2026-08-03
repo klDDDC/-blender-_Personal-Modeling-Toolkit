@@ -1,5 +1,5 @@
 """验证 v1.7.1 两个 bug 修复。用法：
-blender --background --python test_bugfix_1_7_1.py
+blender --background --python tests/test_bugfix_1_7_1.py
 """
 import bpy
 

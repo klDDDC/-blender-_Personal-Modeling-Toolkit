@@ -10,9 +10,9 @@ import subprocess
 import tempfile
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 ADDON_SOURCE = ROOT / "uv_layer_manager_pro"
-BLENDER_TEST = ROOT / "test_shortcut_persistence_blender.py"
+BLENDER_TEST = Path(__file__).resolve().parent / "test_shortcut_persistence_blender.py"
 
 
 def run_stage(blender, scripts_root, config_root, stage):
