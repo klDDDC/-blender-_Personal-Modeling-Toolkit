@@ -1,7 +1,7 @@
 # UV Layer Manager Pro — 功能文档
 
 > 生成时间: 自动生成，用于快速理解项目结构及全部功能
-> Blender 版本: 4.1+ | 插件版本: 1.6.0 | 面板位置: View3D > Sidebar > UV
+> Blender 版本: 4.1+ | 插件版本: 1.8.0 | 面板位置: View3D > Sidebar > UV
 
 ---
 
@@ -22,12 +22,13 @@ python install_addon.py --blender-version 4.1
 uv_layer_manager_pro/
 ├── __init__.py      # 插件入口, bl_info, register/unregister, 所有类+属性注册
 ├── constants.py     # 常量, 全局状态(operation_lock, managed_layouts, etc.), 快捷键定义, ID调色板参数
-├── preferences.py   # AddonPreferences: confirm_open, auto_merge, protect_uv_area
+├── preferences.py   # AddonPreferences: 布局选项与隐藏快捷键 JSON 配置
 ├── utils.py         # 工具函数: UV剪贴板, 布局管理, 材质ID/顶点颜色节点注入, 法向角度, 合并相近顶点, 快捷键注册
 ├── ui.py            # UIList×2, 面板×4, Menu×1, section绘图函数×6, 底部菜单注册
 ├── uv_ops.py        # UV层操作符: add, delete, select, copy, sync, select_max
-├── modeling_ops.py  # 建模操作符: reset_uv_names, snap_close_vertices, rotate_linked_duplicate, select_ngons, select_by_angle, clean_normals, set_normal_angle, set_close_snap_distance, set_select_angle
-├── material_ops.py  # 材质操作符: assign_material, remove_material, add_material, remove_material_slot, select_material_slot, assign_material_slot, edit_material_base_color, toggle_material_id_color, edit_material_id_color, set_material_id_preset, clear_material_slots, clean_unused_material_slots, merge_duplicate_materials, organize_materials, toggle_vertex_color_view, set_color_attribute
+├── modeling_ops.py  # 建模操作符: UV/法线、斜向拉直、顶点/面选择与建模工具
+├── material_ops.py  # 材质操作符: 材质槽、弹窗替换、按材质选面、ID颜色与安全清理
+├── shortcuts.py     # 快捷键注册、稳定键标识、JSON持久化与自动保存
 └── view_ops.py      # 布局切换操作符: toggle_uv_editor, toggle_shader_editor (带面积分/并+保护机制)
 ```
 
@@ -39,7 +40,7 @@ uv_layer_manager_pro/
 | 字段 | 值 |
 |---|---|
 | name | UV Layer Manager Pro |
-| version | (1, 6, 0) |
+| version | (1, 8, 0) |
 | blender | (4, 1, 0) |
 | location | View3D > Sidebar > UV |
 | category | UV |
@@ -52,6 +53,7 @@ uv_layer_manager_pro/
 | `protect_uv_area` | Bool | True | 防止UV编辑器区域被切换为其他类型 |
 | `view_split_ratio` | Float | 0.6 | 旧版兼容，现固定30% |
 | `uv_on_left` | Bool | True | 旧版兼容，现固定编辑器在左侧 |
+| `shortcut_overrides` | String (隐藏) | 空 | 版本化 JSON 快捷键绑定；自动保存并在注册时恢复 |
 
 ### 2.3 快捷键定义 (`constants.py` — `SHORTCUT_DEFS`)
 数组中有 20 个预定义快捷键槽位（不绑定默认按键），覆盖：UV切换、着色器切换、法向预设×5、UV添加/删除/同步、选中最大模型、uv命名重置、合并相近、旋转复制、新增材质、整理材质、材质ID/顶点颜色/顶点alpha。快捷键面板默认只显示已分配按键，勾选“显示未设置”后才展开全部槽位。
@@ -117,6 +119,7 @@ uv_layer_manager_pro/
 | `uvlm_id_edit_color` | FloatVector(4) | (1, 0.24, 0.24, 1) | 编辑中的ID颜色 |
 | `uvlm_id_original_color` | FloatVector(4) | (1, 0.24, 0.24, 1) | 原始ID颜色 |
 | `uvlm_id_preset_0..62` | FloatVector(4) | 63种颜色 | ID预设颜色（只读） |
+| `uvlm_material_replace_target` | Pointer(Material) | None | 材质替换弹窗的临时目标；执行或取消后立即清空 |
 
 ### 4.4 注册/反注册生命周期
 #### register()
@@ -216,10 +219,12 @@ uv_layer_manager_pro/
 | `OT_toggle_material_id_color` | `uv_layer_manager.toggle_material_id_color` | — | 切换单材质ID颜色显示（保存/恢复原始状态） |
 | `OT_edit_material_id_color` | `uv_layer_manager.edit_material_id_color` | — | 弹出预设色盘(63色)，可选预设或自定义颜色，自动将颜色施加到材质ID |
 | `OT_set_material_id_preset` | `uv_layer_manager.set_material_id_preset` | — | 直接设置材质ID为某个预设颜色索引 |
-| `OT_clear_material_slots` | `uv_layer_manager.clear_material_slots` | — | 清除选中模型全部材质槽 |
+| `OT_replace_material` | `uv_layer_manager.replace_material` | — | 从材质色块打开弹窗，按精确材质数据块替换当前选中网格中的槽，保留槽顺序和面索引 |
+| `OT_select_material_faces` | `uv_layer_manager.select_material_faces` | — | 在当前选中网格中按精确材质数据块选择全部面，支持多物体编辑模式 |
+| `OT_clear_material_slots` | `uv_layer_manager.clear_material_slots` | — | 清除选中模型全部材质槽，并清理真正无用户的数字后缀重复材质 |
 | `OT_clean_unused_material_slots` | `uv_layer_manager.clean_unused_material_slots` | — | 从选中模型移除所有未使用的材质槽 |
-| `OT_merge_duplicate_materials` | `uv_layer_manager.merge_duplicate_materials` | — | 合并场景中同名的重复材质（基于基名检测），自动映射面索引 |
-| `OT_organize_materials` | `uv_layer_manager.organize_materials` | — | **一键整理**: 清理未用槽 → 替换重复材质 → 删除零引用重复材质（修复：改用 material_slots API + 清除 Fake User） |
+| `OT_merge_duplicate_materials` | `uv_layer_manager.merge_duplicate_materials` | — | 只合并同一模型内指向同一个材质数据块的重复槽，不按名称重定向材质 |
+| `OT_organize_materials` | `uv_layer_manager.organize_materials` | — | **一键整理**：清理未用槽 → 合并同数据块槽 → 删除全文件中真正无用户的数字后缀重复材质；保留 Fake User、Asset、链接库和仍被引用的数据 |
 | `OT_toggle_vertex_color_view` | `uv_layer_manager.toggle_vertex_color_view` | 材质ID/顶点颜色/alpha | 在3D视图中显示顶点颜色(COLOR)、顶点alpha(ALPHA)、或材质ID(ID)，再次点击恢复 |
 | `OT_set_color_attribute` | `uv_layer_manager.set_color_attribute` | — | 切换当前查看的颜色属性（更新active_color_index+重注入节点） |
 
@@ -278,7 +283,9 @@ uv_layer_manager_pro/
 | `ensure_material_slot(obj, material)` | 确保材质槽存在，返回索引 |
 | `get_used_material_indices(mesh)` | 获取多边形实际使用的材质索引 |
 | `remove_unused_material_slots(obj)` | 清理未用槽 |
-| `merge_duplicate_material_slots(obj)` | 合并重复材质槽 |
+| `merge_duplicate_material_slots(obj)` | 合并同一网格中指向同一数据块的重复材质槽 |
+| `replace_material_slots(objects, source, target)` | 在选中网格中按精确数据块替换材质槽 |
+| `select_material_faces(context, objects, material)` | 跨选中网格按精确数据块选择全部面，共享 Mesh 只处理一次 |
 | `assign_material_to_object(obj, material)` | 赋予材质（全部面） |
 | `get_selected_polygon_indices(obj)` | 获取选中面的索引 |
 | `get_selected_face_material_index(obj)` | 获取选中面的材质索引 |
@@ -289,6 +296,7 @@ uv_layer_manager_pro/
 | `remove_material_from_object()` | 从物体移除某材质所有槽 |
 | `remove_material_slot_from_object(obj, index)` | 移除指定索引材质槽 |
 | `get_material_manager_target(context)` | 获取材质管理器当前目标材质 |
+| `purge_unused_duplicate_materials(context)` | 删除已确认名称族中真正无用户的本地数字后缀材质，保护 Fake User、Asset 与链接库 |
 | `get_duplicate_material_map()` | 检测全部场景中的重复材质（基名相同） |
 | `invalidate_duplicate_material_cache()` | 使重复材质缓存失效 |
 | `set_material_color_view(context)` | 设置所有3D视图为SOLID+MATERIAL模式 |
@@ -345,8 +353,10 @@ uv_layer_manager_pro/
 ### 7.8 快捷键工具
 | 函数 | 用途 |
 |---|---|
-| `register_shortcut_keymaps()` | 注册快捷键（基于constants.SHORTCUT_DEFS，不绑定默认按键） |
-| `unregister_shortcut_keymaps()` | 反注册快捷键 |
+| `register_shortcut_keymaps()` | 注册并恢复快捷键（基于 `constants.SHORTCUT_DEFS`，默认不绑定按键） |
+| `unregister_shortcut_keymaps()` | 保存最后状态并反注册快捷键 |
+| `save_shortcuts_to_prefs()` / `load_shortcuts_from_prefs()` | 写入或恢复版本化 JSON 快捷键配置 |
+| `get_shortcut_save_status()` | 返回面板显示的自动保存状态 |
 | `draw_shortcut_keymap_item(layout, context, keymap, item)` | UI绘制快捷键按键映射行 |
 
 ---
@@ -367,4 +377,13 @@ uv_layer_manager_pro/
 4. **拓扑一致性校验**：UV同步操作会校验源和目标模型的loop count是否一致
 5. **缓存体系**：`_draw_cache`（UI帧缓存）、`_duplicate_material_map_cache`（重复材质检测）、`_id_color_preview_collection`（图标预览）
 6. **布局管理器**：跟踪插件创建的编辑器区域，支持打开/关闭/切换三种布局（UV / 着色器），保护非插件创建的现有编辑器
-7. **材质的"整理"功能**：`organize_materials` 是组合操作：清理未用材质槽 → 替换重复材质（通过 `obj.material_slots[i].material` 正确管理引用计数） → 合并重复槽 → 删除零引用重复材质（含 Fake User 清理）
+7. **材质的"整理"功能**：`organize_materials` 是组合操作：清理未用材质槽 → 合并同一数据块的重复槽 → 删除确认无用户的数字后缀材质；不按名称强制替换仍在使用的独立材质。
+
+---
+
+## 十、1.8.0 新增行为
+
+- 材质色块现在是操作入口。弹窗中的“替换为”使用 Blender 材质搜索，替换范围是当前选中的全部网格模型，匹配按材质数据块和库路径精确判断，不按 `Wood.001` 这类名称族扩大范围。
+- 弹窗可直接调用“选中该材质的所有面”。Object Mode 会进入多物体 Edit Mode，Edit Mode 保持当前模式；共享 Mesh 只处理一次，并保留对象选择集合。
+- “清除材质槽”和“整理材质”都会扫描全文件，只删除本地、无用户、无 Fake User/Asset、属于已确认数字后缀族的材质；链接库材质和任何仍被引用的数据均保留。
+- 快捷键配置以版本化 JSON 写入 AddonPreferences，使用 Operator ID 与固定参数作为稳定键。编辑后会自动防抖保存，面板同时提供立即保存、重置和当前保存状态。

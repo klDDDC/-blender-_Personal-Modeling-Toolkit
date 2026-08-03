@@ -10,6 +10,9 @@ import bmesh
 from . import constants as C
 
 
+_NUMERIC_MATERIAL_SUFFIX_RE = re.compile(r"\.\d{3}$")
+
+
 # ============================================================
 # Preferences helpers
 # ============================================================
@@ -112,6 +115,31 @@ def get_selected_mesh_objects(context):
     return [obj for obj in context.selected_objects if obj.type == 'MESH' and obj.data is not None]
 
 
+def get_material_library_path(material):
+    """Return the stored library path used to distinguish linked materials."""
+    library = getattr(material, "library", None)
+    return getattr(library, "filepath", "") if library else ""
+
+
+def find_material(material_name, library_path=""):
+    """Find a material by its exact name and owning library path."""
+    for material in bpy.data.materials:
+        if material.name != material_name:
+            continue
+        if get_material_library_path(material) == library_path:
+            return material
+    return None
+
+
+def is_same_material(first, second):
+    if first is None or second is None:
+        return first is second
+    try:
+        return first.as_pointer() == second.as_pointer()
+    except (AttributeError, ReferenceError):
+        return first == second
+
+
 def get_material_base_name(name):
     # Handle multiple suffixes like Material.001.002 → Material
     while re.search(r"\.\d{3}$", name):
@@ -194,8 +222,8 @@ def remove_unused_material_slots(obj):
     return removed_count
 
 
-def merge_duplicate_material_slots(obj):
-    mesh = obj.data
+def _merge_duplicate_material_slots(mesh):
+    """合并单个网格中指向同一材质的重复槽位，返回合并数。"""
     first_slot_by_material = {}
     duplicate_indices = []
 
@@ -221,10 +249,161 @@ def merge_duplicate_material_slots(obj):
             if polygon.material_index > remove_index:
                 polygon.material_index -= 1
 
-    if obj.active_material_index >= len(mesh.materials):
-        obj.active_material_index = max(0, len(mesh.materials) - 1)
     mesh.update()
     return len(duplicate_indices)
+
+
+def merge_duplicate_material_slots(obj):
+    mesh = obj.data
+    merged = _merge_duplicate_material_slots(mesh)
+    if merged and obj.active_material_index >= len(mesh.materials):
+        obj.active_material_index = max(0, len(mesh.materials) - 1)
+    return merged
+
+
+def replace_material_slots(objects, source_material, target_material):
+    """Replace exact source-material slots and preserve slot/face indices."""
+    replaced_slots = 0
+    changed_objects = set()
+    changed_meshes = {}
+
+    for obj in objects:
+        if obj is None or obj.type != 'MESH' or obj.data is None:
+            continue
+        object_changed = False
+        for slot in obj.material_slots:
+            if not is_same_material(slot.material, source_material):
+                continue
+            try:
+                slot.material = target_material
+            except (AttributeError, RuntimeError, TypeError):
+                continue
+            replaced_slots += 1
+            object_changed = True
+        if object_changed:
+            changed_objects.add(obj.as_pointer())
+            changed_meshes[obj.data.as_pointer()] = obj.data
+
+    for mesh in changed_meshes.values():
+        mesh.update()
+    if replaced_slots:
+        invalidate_duplicate_material_cache()
+        C._draw_cache.clear()
+    return replaced_slots, len(changed_objects)
+
+
+def _material_slot_indices(obj, material):
+    return {
+        index
+        for index, slot in enumerate(obj.material_slots)
+        if is_same_material(slot.material, material)
+    }
+
+
+def _mesh_selection_groups(objects, material):
+    groups = {}
+    for obj in objects:
+        if obj is None or obj.type != 'MESH' or obj.data is None:
+            continue
+        mesh = obj.data
+        group = groups.setdefault(
+            mesh.as_pointer(),
+            {"mesh": mesh, "objects": [], "indices": set()},
+        )
+        indices = _material_slot_indices(obj, material)
+        group["objects"].append((obj, indices))
+        group["indices"].update(indices)
+    return list(groups.values())
+
+
+def _clear_mesh_selection(mesh):
+    for vertex in mesh.vertices:
+        vertex.select = False
+    for edge in mesh.edges:
+        edge.select = False
+    for polygon in mesh.polygons:
+        polygon.select = False
+    mesh.update()
+
+
+def select_material_faces(context, objects, material):
+    """Select faces using an exact material across selected mesh objects.
+
+    Shared meshes are processed once. If object-level material links differ,
+    the shared mesh uses the union of matching slot indices because Blender
+    cannot store a different edit-mode face selection per object instance.
+    """
+    groups = _mesh_selection_groups(objects, material)
+    if not groups:
+        return 0, 0
+
+    matching_objects = set()
+    matching_active = None
+    estimated_faces = 0
+    for group in groups:
+        mesh = group["mesh"]
+        matching_indices = group["indices"]
+        matching_face_indices = {
+            polygon.index
+            for polygon in mesh.polygons
+            if polygon.material_index in matching_indices
+        }
+        estimated_faces += len(matching_face_indices)
+        if not matching_face_indices:
+            continue
+        for obj, object_indices in group["objects"]:
+            if any(mesh.polygons[index].material_index in object_indices for index in matching_face_indices):
+                matching_objects.add(obj.as_pointer())
+                if matching_active is None:
+                    matching_active = obj
+
+    active_object = context.view_layer.objects.active
+    was_edit_mode = bool(active_object and active_object.mode == 'EDIT')
+
+    if estimated_faces and not was_edit_mode and matching_active is not None:
+        context.view_layer.objects.active = matching_active
+        context.tool_settings.mesh_select_mode = (False, False, True)
+        try:
+            bpy.ops.object.mode_set(mode='EDIT')
+        except RuntimeError:
+            pass
+
+    selected_faces = 0
+    context.tool_settings.mesh_select_mode = (False, False, True)
+    for group in groups:
+        mesh = group["mesh"]
+        matching_indices = group["indices"]
+        edit_object = next((obj for obj, _ in group["objects"] if obj.mode == 'EDIT'), None)
+        if edit_object is not None:
+            try:
+                bm = bmesh.from_edit_mesh(mesh)
+                for vertex in bm.verts:
+                    vertex.select_set(False)
+                for edge in bm.edges:
+                    edge.select_set(False)
+                for face in bm.faces:
+                    face.select_set(False)
+                for face in bm.faces:
+                    if face.material_index in matching_indices:
+                        face.select_set(True)
+                        selected_faces += 1
+                bm.select_flush_mode()
+                bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+                continue
+            except (ReferenceError, RuntimeError):
+                pass
+
+        _clear_mesh_selection(mesh)
+        for polygon in mesh.polygons:
+            if polygon.material_index in matching_indices:
+                polygon.select = True
+                selected_faces += 1
+        mesh.update()
+
+    if selected_faces and matching_active is not None:
+        context.view_layer.objects.active = matching_active
+    C._draw_cache.clear()
+    return selected_faces, len(matching_objects)
 
 
 def assign_material_to_object(obj, material):
@@ -381,6 +560,94 @@ def remove_material_slot_from_object(obj, index):
     return True
 
 
+def clear_material_replace_target(context=None):
+    """Release all plugin-owned temporary material ID pointers."""
+    context = context or bpy.context
+    cleared = False
+    window_managers = list(getattr(bpy.data, "window_managers", ()))
+    current_window_manager = getattr(context, "window_manager", None)
+    if current_window_manager is not None and current_window_manager not in window_managers:
+        window_managers.append(current_window_manager)
+    for window_manager in window_managers:
+        if not hasattr(window_manager, "uvlm_material_replace_target"):
+            continue
+        try:
+            if window_manager.uvlm_material_replace_target is not None:
+                window_manager.uvlm_material_replace_target = None
+                cleared = True
+        except (AttributeError, ReferenceError, TypeError):
+            continue
+    return cleared
+
+
+def _clear_transient_material_references(material):
+    """Drop plugin UI pointers that should not count as real material use."""
+    for scene in bpy.data.scenes:
+        if not hasattr(scene, "material_manager_material"):
+            continue
+        try:
+            if is_same_material(scene.material_manager_material, material):
+                scene.material_manager_material = None
+        except (AttributeError, ReferenceError, TypeError):
+            continue
+
+    for window_manager in getattr(bpy.data, "window_managers", ()):
+        if not hasattr(window_manager, "uvlm_material_replace_target"):
+            continue
+        try:
+            if is_same_material(window_manager.uvlm_material_replace_target, material):
+                window_manager.uvlm_material_replace_target = None
+        except (AttributeError, ReferenceError, TypeError):
+            continue
+
+
+def purge_unused_duplicate_materials(context=None):
+    """Delete only unused, local numeric-suffix materials from known families."""
+    local_materials = [
+        material
+        for material in bpy.data.materials
+        if getattr(material, "library", None) is None
+    ]
+    families = {}
+    for material in local_materials:
+        families.setdefault(get_material_base_name(material.name), []).append(material)
+
+    candidates = []
+    for base_name, family in families.items():
+        suffixed = [material for material in family if _NUMERIC_MATERIAL_SUFFIX_RE.search(material.name)]
+        if not suffixed:
+            continue
+        has_base_material = any(material.name == base_name for material in family)
+        if not has_base_material and len(suffixed) < 2:
+            continue
+        for material in suffixed:
+            if getattr(material, "use_fake_user", False):
+                continue
+            if getattr(material, "asset_data", None) is not None:
+                continue
+            _clear_transient_material_references(material)
+            if material.users != 0:
+                continue
+            candidates.append(material)
+
+    deleted = 0
+    for material in candidates:
+        try:
+            bpy.data.materials.remove(material, do_unlink=False)
+            deleted += 1
+        except (ReferenceError, RuntimeError, TypeError):
+            continue
+    if deleted:
+        invalidate_duplicate_material_cache()
+        C._draw_cache.clear()
+    return deleted
+
+
+def purge_orphan_materials(context=None):
+    """Compatibility wrapper for the narrowed duplicate-material cleanup."""
+    return purge_unused_duplicate_materials(context)
+
+
 def get_material_manager_target(context):
     obj = context.active_object
     if obj is not None and obj.type == 'MESH' and obj.active_material is not None:
@@ -414,6 +681,11 @@ def get_duplicate_material_map():
 def invalidate_duplicate_material_cache():
     C._duplicate_material_map_cache = None
     C._duplicate_material_map_version = -1
+
+
+def unify_duplicate_materials(context=None):
+    """Compatibility wrapper that no longer remaps materials by name."""
+    return 0, 0, purge_unused_duplicate_materials(context)
 
 
 def set_material_color_view(context):

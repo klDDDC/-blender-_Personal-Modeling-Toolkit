@@ -7,7 +7,7 @@ import sys
 import bpy
 
 
-EXPECTED_VERSION = (1, 7, 0)
+EXPECTED_VERSION = (1, 8, 0)
 EXPECTED_ROOT = (
     Path(os.environ["APPDATA"])
     / "Blender Foundation"

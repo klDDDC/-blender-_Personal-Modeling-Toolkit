@@ -41,6 +41,13 @@ class UV_LAYER_MANAGER_prefs(bpy.types.AddonPreferences):
         default=True,
     )
 
+    shortcut_overrides: bpy.props.StringProperty(
+        name="快捷键配置",
+        description="自动持久化保存的版本化快捷键配置（JSON）",
+        default="",
+        options={'HIDDEN'},
+    )
+
     def draw(self, context):
         layout = self.layout
 

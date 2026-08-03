@@ -3,7 +3,7 @@
 bl_info = {
     "name": "UV Layer Manager Pro",
     "author": "Developer",
-    "version": (1, 7, 0),
+    "version": (1, 8, 0),
     "blender": (4, 1, 0),
     "location": "View3D > Sidebar > UV",
     "description": "管理模型的UV层，支持添加、删除、复制和同步UV层",
@@ -18,6 +18,7 @@ from . import material_id as MID
 from . import layout as L
 from . import normal_angle as NA
 from . import merge_vertices as MV
+from . import modeling_ops as MOD
 from . import material_ops as MOPS
 from . import vertex_color_nodes as VCN
 from . import ui as UI
@@ -37,6 +38,8 @@ from .modeling_ops import (
     UV_LAYER_MANAGER_OT_set_close_snap_distance,
     UV_LAYER_MANAGER_OT_set_uv_naming,
     UV_LAYER_MANAGER_OT_rotate_linked_duplicate,
+    UV_LAYER_MANAGER_OT_straighten_vertices,
+    UV_LAYER_MANAGER_OT_set_straighten_direction,
     UV_LAYER_MANAGER_OT_select_ngons,
     UV_LAYER_MANAGER_OT_quadify_ngons,
     UV_LAYER_MANAGER_OT_select_overlapping_faces,
@@ -56,6 +59,8 @@ from .material_ops import (
     UV_LAYER_MANAGER_OT_edit_material_id_color,
     UV_LAYER_MANAGER_OT_edit_material_id_color_for_target,
     UV_LAYER_MANAGER_OT_set_material_id_preset,
+    UV_LAYER_MANAGER_OT_replace_material,
+    UV_LAYER_MANAGER_OT_select_material_faces,
     UV_LAYER_MANAGER_OT_clear_material_slots,
     UV_LAYER_MANAGER_OT_clean_unused_material_slots,
     UV_LAYER_MANAGER_OT_merge_duplicate_materials,
@@ -66,6 +71,10 @@ from .material_ops import (
 from .view_ops import (
     UV_LAYER_MANAGER_OT_toggle_uv_editor,
     UV_LAYER_MANAGER_OT_toggle_shader_editor,
+)
+from .shortcuts import (
+    UV_LAYER_MANAGER_OT_save_shortcuts,
+    UV_LAYER_MANAGER_OT_reset_shortcuts,
 )
 from .ui import (
     UV_LAYER_MANAGER_UL_uv_layers,
@@ -96,6 +105,8 @@ classes = (
     UV_LAYER_MANAGER_OT_set_close_snap_distance,
     UV_LAYER_MANAGER_OT_set_uv_naming,
     UV_LAYER_MANAGER_OT_rotate_linked_duplicate,
+    UV_LAYER_MANAGER_OT_straighten_vertices,
+    UV_LAYER_MANAGER_OT_set_straighten_direction,
     UV_LAYER_MANAGER_OT_select_ngons,
     UV_LAYER_MANAGER_OT_quadify_ngons,
     UV_LAYER_MANAGER_OT_select_overlapping_faces,
@@ -113,6 +124,8 @@ classes = (
     UV_LAYER_MANAGER_OT_edit_material_id_color,
     UV_LAYER_MANAGER_OT_edit_material_id_color_for_target,
     UV_LAYER_MANAGER_OT_set_material_id_preset,
+    UV_LAYER_MANAGER_OT_replace_material,
+    UV_LAYER_MANAGER_OT_select_material_faces,
     UV_LAYER_MANAGER_OT_clear_material_slots,
     UV_LAYER_MANAGER_OT_clean_unused_material_slots,
     UV_LAYER_MANAGER_OT_merge_duplicate_materials,
@@ -121,6 +134,8 @@ classes = (
     UV_LAYER_MANAGER_OT_set_color_attribute,
     UV_LAYER_MANAGER_OT_toggle_uv_editor,
     UV_LAYER_MANAGER_OT_toggle_shader_editor,
+    UV_LAYER_MANAGER_OT_save_shortcuts,
+    UV_LAYER_MANAGER_OT_reset_shortcuts,
     UV_LAYER_MANAGER_UL_uv_layers,
     UV_LAYER_MANAGER_UL_material_slots,
     UV_LAYER_MANAGER_OT_toggle_material_group,
@@ -155,6 +170,7 @@ def register():
 
         # ---- Properties ----
         L.register_properties()
+        MOD.register_properties()
         MOPS.register_properties()
         MV.register_properties()
         NA.register_properties()
@@ -207,6 +223,7 @@ def unregister():
 
     # ---- Clean up properties ----
     L.unregister_properties()
+    MOD.unregister_properties()
     MOPS.unregister_properties()
     MV.unregister_properties()
     NA.unregister_properties()
@@ -245,6 +262,13 @@ def _register_context_menus():
         except Exception:
             pass
         menu.append(UI.draw_uv_layer_manager_shortcut_menu)
+    edit_menu = getattr(bpy.types, "VIEW3D_MT_edit_mesh_context_menu", None)
+    if edit_menu is not None:
+        try:
+            edit_menu.remove(UI.draw_uv_layer_manager_edit_mesh_menu)
+        except Exception:
+            pass
+        edit_menu.append(UI.draw_uv_layer_manager_edit_mesh_menu)
 
 
 def _unregister_context_menus():
@@ -253,6 +277,12 @@ def _unregister_context_menus():
             continue
         try:
             menu.remove(UI.draw_uv_layer_manager_shortcut_menu)
+        except Exception:
+            pass
+    edit_menu = getattr(bpy.types, "VIEW3D_MT_edit_mesh_context_menu", None)
+    if edit_menu is not None:
+        try:
+            edit_menu.remove(UI.draw_uv_layer_manager_edit_mesh_menu)
         except Exception:
             pass
 

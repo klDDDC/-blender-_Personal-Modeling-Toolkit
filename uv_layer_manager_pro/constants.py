@@ -58,6 +58,7 @@ SHORTCUT_DEFS = (
     ("uv命名重置", "uv_layer_manager.reset_uv_names", {}),
     ("合并相近", "uv_layer_manager.snap_close_vertices", {}),
     ("旋转复制", "uv_layer_manager.rotate_linked_duplicate", {}),
+    ("斜向拉直", "uv_layer_manager.straighten_vertices", {}),
     ("新增材质", "uv_layer_manager.add_material", {}),
     ("整理材质", "uv_layer_manager.organize_materials", {}),
     ("材质ID", "uv_layer_manager.toggle_vertex_color_view", {"mode": "ID"}),

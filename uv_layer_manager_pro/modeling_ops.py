@@ -5,10 +5,33 @@ UV Layer Manager - Modeling Operators
 import bpy
 import bmesh
 import math
+import mathutils
 from . import constants as C
 from . import utils as U
 from . import normal_angle as NA
 from . import merge_vertices as MV
+
+
+STRAIGHTEN_DIRECTION_ITEMS = (
+    ('MANUAL', "手动控制", "点击按钮后在 3D 视图拖拽鼠标定义拉直方向（类似 FFD 控制点）"),
+    ('AUTO', "自动（最远两点）", "用选中顶点中最远的两个点确定方向，端点保持不动"),
+    ('EDGE', "沿活动边", "用活动边（最后选中的边）的方向拉直"),
+    ('X', "X 轴", "沿世界 X 轴拉直，直线过选中顶点中心"),
+    ('Y', "Y 轴", "沿世界 Y 轴拉直，直线过选中顶点中心"),
+    ('Z', "Z 轴", "沿世界 Z 轴拉直，直线过选中顶点中心"),
+    ('ANGLE', "自定义角度", "按角度绕 Z 轴（俯视平面）拉直，X 正方向为 0°，逆时针"),
+)
+
+
+def project_verts_onto_line(verts, origin, direction):
+    """把顶点投影到过 origin、沿 direction 的直线上。返回移动的顶点数。"""
+    len_sq = direction.length_squared
+    if len_sq <= 1e-12:
+        return 0
+    for v in verts:
+        t = (v.co - origin).dot(direction) / len_sq
+        v.co = origin + direction * t
+    return len(verts)
 
 
 # ============================================================
@@ -333,6 +356,365 @@ class UV_LAYER_MANAGER_OT_rotate_linked_duplicate(bpy.types.Operator):
             context.view_layer.objects.active = created_objects[-1]
 
         self.report({'INFO'}, f"已旋转复制 {len(created_objects)} 个关联模型")
+        return {'FINISHED'}
+
+
+class UV_LAYER_MANAGER_OT_straighten_vertices(bpy.types.Operator):
+    bl_idname = "uv_layer_manager.straighten_vertices"
+    bl_label = "斜向拉直"
+    bl_description = "拖拽鼠标手动控制拉直方向（类似 FFD），或按设置使用自动/活动边/轴向/角度；面选择模式下不生效"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    _objects = []
+    _direction = None
+    _draw_handle = None
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode == 'EDIT'
+
+    def invoke(self, context, event):
+        direction_mode = getattr(context.scene, "uvlm_straighten_direction", 'MANUAL')
+        if direction_mode == 'MANUAL':
+            if context.area is None or context.area.type != 'VIEW_3D':
+                self.report({'WARNING'}, "手动控制需要在 3D 视图中使用")
+                return {'CANCELLED'}
+            if not self._capture(context):
+                return {'CANCELLED'}
+            self._direction = self._direction_from_mouse(context, event)
+            context.window_manager.modal_handler_add(self)
+            self._add_draw_handler(context)
+            self._apply_preview(context)
+            return {'RUNNING_MODAL'}
+        return self.execute(context)
+
+    def modal(self, context, event):
+        if event.type == 'MOUSEMOVE':
+            self._direction = self._direction_from_mouse(context, event)
+            self._apply_preview(context)
+            try:
+                context.area.tag_redraw()
+            except Exception:
+                pass
+            return {'RUNNING_MODAL'}
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS':
+            count = sum(len(data["verts"]) for data in self._objects)
+            self._remove_draw_handler()
+            self._objects = []
+            self._direction = None
+            self.report({'INFO'}, f"已斜向拉直 {count} 个顶点")
+            return {'FINISHED'}
+        if event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            self._restore_original(context)
+            self._remove_draw_handler()
+            self._objects = []
+            self._direction = None
+            self.report({'WARNING'}, "已取消斜向拉直")
+            return {'CANCELLED'}
+        return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        try:
+            self._restore_original(context)
+        except Exception:
+            pass
+        self._remove_draw_handler()
+        self._objects = []
+        self._direction = None
+
+    def _capture(self, context):
+        """收集所有编辑物体的选中顶点、原始坐标和中心点。"""
+        select_mode = context.tool_settings.mesh_select_mode
+        self._objects = []
+        for obj in context.objects_in_mode_unique_data:
+            if obj.type != 'MESH' or obj.mode != 'EDIT':
+                continue
+            bm = bmesh.from_edit_mesh(obj.data)
+            if select_mode[2] and any(f.select and not f.hide for f in bm.faces):
+                self.report(
+                    {'WARNING'},
+                    "面选择模式下不会拉直，请切换为顶点或边选择模式",
+                )
+                return False
+            if select_mode[1]:
+                # 边选择模式：收集选中边上的顶点（去重）
+                selected_map = {}
+                for edge in bm.edges:
+                    if edge.select and not edge.hide:
+                        for v in edge.verts:
+                            if not v.hide:
+                                selected_map[v.index] = v
+                selected = list(selected_map.values())
+            else:
+                selected = [v for v in bm.verts if v.select and not v.hide]
+            if len(selected) < 3:
+                continue
+            pivot = mathutils.Vector((0.0, 0.0, 0.0))
+            for v in selected:
+                pivot += v.co
+            pivot /= len(selected)
+            self._objects.append({
+                "obj": obj,
+                "verts": selected,
+                "originals": [v.co.copy() for v in selected],
+                "pivot": pivot,
+            })
+        if not self._objects:
+            self.report({'WARNING'}, "请至少选择 3 个顶点")
+            return False
+        return True
+
+    def _direction_from_mouse(self, context, event):
+        """把鼠标位置映射为穿过选中中心、垂直于视线的 3D 方向。"""
+        from bpy_extras import view3d_utils
+        area = context.area
+        win_region = None
+        rv3d = None
+        for region in area.regions:
+            if region.type == 'WINDOW':
+                win_region = region
+                rv3d = getattr(region, "data", None)
+                break
+        if win_region is None or rv3d is None or not hasattr(rv3d, "view_matrix"):
+            return self._direction or mathutils.Vector((1.0, 0.0, 0.0))
+
+        mouse = (event.mouse_x - win_region.x, event.mouse_y - win_region.y)
+        origin_3d = view3d_utils.region_2d_to_origin_3d(win_region, rv3d, mouse)
+        vector_3d = view3d_utils.region_2d_to_vector_3d(win_region, rv3d, mouse)
+        pivot_world = self._objects[0]["obj"].matrix_world @ self._objects[0]["pivot"]
+        view_dir = rv3d.view_rotation @ mathutils.Vector((0.0, 0.0, -1.0))
+        denom = vector_3d.dot(view_dir)
+        if abs(denom) < 1e-9:
+            return self._direction or mathutils.Vector((1.0, 0.0, 0.0))
+        t = (pivot_world - origin_3d).dot(view_dir) / denom
+        point = origin_3d + vector_3d * t
+        direction = point - pivot_world
+        if direction.length_squared < 1e-12:
+            return self._direction or mathutils.Vector((1.0, 0.0, 0.0))
+        return direction.normalized()
+
+    def _apply_preview(self, context):
+        if self._direction is None:
+            return
+        for data in self._objects:
+            obj = data["obj"]
+            local_dir = (obj.matrix_world.inverted().to_3x3() @ self._direction).normalized()
+            pivot = data["pivot"]
+            for v, original in zip(data["verts"], data["originals"]):
+                offset = original - pivot
+                v.co = pivot + local_dir * offset.dot(local_dir)
+            bmesh.update_edit_mesh(obj.data)
+
+    def _restore_original(self, context):
+        for data in self._objects:
+            obj = data["obj"]
+            if obj.name not in bpy.data.objects:
+                continue
+            bm = bmesh.from_edit_mesh(obj.data)
+            for v, original in zip(data["verts"], data["originals"]):
+                try:
+                    v.co = original
+                except Exception:
+                    pass
+            bmesh.update_edit_mesh(obj.data)
+
+    def _add_draw_handler(self, context):
+        if self._draw_handle is not None:
+            return
+        self._draw_handle = bpy.types.SpaceView3D.draw_handler_add(
+            _draw_straighten_line,
+            (self,),
+            'WINDOW',
+            'POST_VIEW',
+        )
+
+    def _remove_draw_handler(self):
+        if self._draw_handle is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(self._draw_handle, 'WINDOW')
+            except Exception:
+                pass
+            self._draw_handle = None
+
+    def execute(self, context):
+        select_mode = context.tool_settings.mesh_select_mode
+        direction_mode = getattr(context.scene, "uvlm_straighten_direction", 'MANUAL')
+        if direction_mode == 'MANUAL':
+            direction_mode = 'AUTO'
+        angle_deg = getattr(context.scene, "uvlm_straighten_angle", 45.0)
+
+        # 前置校验：面选择会把整片面拉成一条线，先检查再修改
+        has_direction_edge = False
+        for obj in context.objects_in_mode_unique_data:
+            if obj.type != 'MESH' or obj.mode != 'EDIT':
+                continue
+            bm = bmesh.from_edit_mesh(obj.data)
+            if select_mode[2] and any(f.select and not f.hide for f in bm.faces):
+                self.report(
+                    {'WARNING'},
+                    "面选择模式下不会拉直，请切换为顶点或边选择模式",
+                )
+                return {'CANCELLED'}
+            if direction_mode == 'EDGE':
+                active_edge = getattr(bm.select_history, "active", None)
+                if isinstance(active_edge, bmesh.types.BMEdge):
+                    has_direction_edge = True
+                if any(e.select and not e.hide for e in bm.edges):
+                    has_direction_edge = True
+        if direction_mode == 'EDGE' and not has_direction_edge:
+            self.report({'WARNING'}, "请先选中一条边作为拉直方向参考")
+            return {'CANCELLED'}
+
+        straightened = 0
+        for obj in context.objects_in_mode_unique_data:
+            if obj.type != 'MESH' or obj.mode != 'EDIT':
+                continue
+            bm = bmesh.from_edit_mesh(obj.data)
+            if select_mode[1]:
+                # 边选择模式：收集选中边上的顶点（去重）
+                selected_map = {}
+                for edge in bm.edges:
+                    if edge.select and not edge.hide:
+                        for v in edge.verts:
+                            if not v.hide:
+                                selected_map[v.index] = v
+                selected = list(selected_map.values())
+            else:
+                selected = [v for v in bm.verts if v.select and not v.hide]
+            if len(selected) < 3:
+                continue
+
+            if direction_mode == 'AUTO':
+                # 用最远的两个顶点确定拉直方向，端点保持不动
+                p0, p1 = None, None
+                max_dist_sq = -1.0
+                count = len(selected)
+                for i in range(count):
+                    vi = selected[i]
+                    for j in range(i + 1, count):
+                        vj = selected[j]
+                        dist_sq = (vi.co - vj.co).length_squared
+                        if dist_sq > max_dist_sq:
+                            max_dist_sq = dist_sq
+                            p0, p1 = vi.co, vj.co
+                origin = p0
+                direction = p1 - p0
+            elif direction_mode == 'EDGE':
+                active_edge = getattr(bm.select_history, "active", None)
+                if not isinstance(active_edge, bmesh.types.BMEdge):
+                    active_edge = None
+                    for edge in bm.edges:
+                        if edge.select and not edge.hide:
+                            active_edge = edge
+                            break
+                if active_edge is None:
+                    continue
+                origin = active_edge.verts[0].co.copy()
+                direction = active_edge.verts[1].co - active_edge.verts[0].co
+            elif direction_mode in {'X', 'Y', 'Z'}:
+                axis = {'X': (1.0, 0.0, 0.0), 'Y': (0.0, 1.0, 0.0), 'Z': (0.0, 0.0, 1.0)}[direction_mode]
+                origin = mathutils.Vector((0.0, 0.0, 0.0))
+                for v in selected:
+                    origin += v.co
+                origin /= len(selected)
+                direction = mathutils.Vector(axis)
+            else:
+                # 自定义角度：绕 Z 轴（俯视平面），X 正方向为 0°，逆时针
+                rad = math.radians(angle_deg)
+                origin = mathutils.Vector((0.0, 0.0, 0.0))
+                for v in selected:
+                    origin += v.co
+                origin /= len(selected)
+                direction = mathutils.Vector((math.cos(rad), math.sin(rad), 0.0))
+
+            moved = project_verts_onto_line(selected, origin, direction)
+            if moved == 0:
+                continue
+            bmesh.update_edit_mesh(obj.data)
+            straightened += moved
+
+        if straightened == 0:
+            self.report({'WARNING'}, "请至少选择 3 个顶点")
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"已斜向拉直 {straightened} 个顶点")
+        return {'FINISHED'}
+
+
+def _draw_straighten_line(op):
+    """在视口中绘制拉直方向的参考线。"""
+    import gpu
+    from gpu.types import GPUBatch, GPUVertBuf, GPUVertFormat
+    if op._direction is None or not op._objects:
+        return
+    pivot_world = op._objects[0]["obj"].matrix_world @ op._objects[0]["pivot"]
+    direction = op._direction
+    length = 1000.0
+    coords = (
+        (pivot_world - direction * length).to_tuple(),
+        (pivot_world + direction * length).to_tuple(),
+    )
+    fmt = GPUVertFormat()
+    fmt.attr_add(id="pos", comp='3', dtype='f32')
+    vbuf = GPUVertBuf(fmt, 2)
+    vbuf.attribute_fill(0, coords)
+    shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+    batch = GPUBatch(type='LINES', buf=vbuf)
+    shader.bind()
+    shader.uniform_float("color", (1.0, 0.45, 0.1, 1.0))
+    batch.draw(shader)
+
+
+class UV_LAYER_MANAGER_OT_set_straighten_direction(bpy.types.Operator):
+    bl_idname = "uv_layer_manager.set_straighten_direction"
+    bl_label = "斜向拉直设置"
+    bl_description = "设置斜向拉直的方向来源和自定义角度"
+    bl_options = {'REGISTER'}
+
+    direction: bpy.props.EnumProperty(
+        name="方向来源",
+        items=STRAIGHTEN_DIRECTION_ITEMS,
+        default='MANUAL',
+    )
+    angle: bpy.props.FloatProperty(
+        name="角度°",
+        description="绕 Z 轴（俯视平面）的角度，X 正方向为 0°，逆时针",
+        default=45.0,
+        min=-360.0,
+        max=360.0,
+        step=5,
+        precision=1,
+    )
+
+    def invoke(self, context, event):
+        scene = context.scene
+        self.direction = getattr(scene, "uvlm_straighten_direction", 'MANUAL')
+        self.angle = getattr(scene, "uvlm_straighten_angle", 45.0)
+        if context.area is None:
+            return self.execute(context)
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
+    def draw(self, context):
+        self.layout.prop(self, "direction", text="方向来源")
+        if self.direction == 'ANGLE':
+            self.layout.prop(self, "angle", text="角度°")
+        self.layout.separator()
+        hint = (
+            "手动控制：点按钮后拖拽鼠标定义方向（类似 FFD）；"
+            "自动：最远两点，端点不动；"
+            "沿活动边：需先选一条边作为方向；"
+            "X/Y/Z 与自定义角度：直线过选中顶点中心"
+        )
+        self.layout.label(text=hint, icon='INFO')
+
+    def execute(self, context):
+        context.scene.uvlm_straighten_direction = self.direction
+        if self.direction == 'ANGLE':
+            context.scene.uvlm_straighten_angle = self.angle
+        label = {item[0]: item[1] for item in STRAIGHTEN_DIRECTION_ITEMS}.get(
+            self.direction, self.direction
+        )
+        self.report({'INFO'}, f"斜向拉直方向已设为：{label}")
         return {'FINISHED'}
 
 
@@ -769,3 +1151,32 @@ class UV_LAYER_MANAGER_OT_set_normal_angle(bpy.types.Operator):
             context.scene.normal_angle_custom = self.angle
         context.scene.normal_angle_preset = self.preset
         return bpy.ops.uv_layer_manager.clean_normals()
+
+
+# ============================================================
+# Property registration
+# ============================================================
+
+def register_properties():
+    bpy.types.Scene.uvlm_straighten_direction = bpy.props.EnumProperty(
+        name="斜向拉直方向",
+        description="斜向拉直的方向来源",
+        items=STRAIGHTEN_DIRECTION_ITEMS,
+        default='MANUAL',
+    )
+    bpy.types.Scene.uvlm_straighten_angle = bpy.props.FloatProperty(
+        name="斜向拉直角度",
+        description="自定义角度模式：绕 Z 轴（俯视平面），X 正方向为 0°，逆时针",
+        default=45.0,
+        min=-360.0,
+        max=360.0,
+        step=5,
+        precision=1,
+    )
+
+
+def unregister_properties():
+    if hasattr(bpy.types.Scene, 'uvlm_straighten_direction'):
+        del bpy.types.Scene.uvlm_straighten_direction
+    if hasattr(bpy.types.Scene, 'uvlm_straighten_angle'):
+        del bpy.types.Scene.uvlm_straighten_angle

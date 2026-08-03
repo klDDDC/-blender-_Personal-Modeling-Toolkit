@@ -6,6 +6,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 import traceback
 
 import bpy
@@ -66,6 +67,19 @@ def create_cube(name="UVLM_TestCube", location=(0, 0, 0)):
     return obj
 
 
+def select_objects(objects, active=None):
+    if bpy.ops.object.mode_set.poll():
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = active or (objects[0] if objects else None)
+
+
+def selected_polygon_indices(mesh):
+    return {polygon.index for polygon in mesh.polygons if polygon.select}
+
+
 def import_addon():
     addon = importlib.import_module("uv_layer_manager_pro")
     if bpy.context.preferences.addons.get("uv_layer_manager_pro") is not None:
@@ -93,6 +107,7 @@ def test_register_properties():
     assert_true(hasattr(bpy.types.Material, "uvlm_id_color"), "Material.uvlm_id_color missing")
     assert_true(hasattr(bpy.types.Material, "uvlm_swatch_order"), "material swatch property missing")
     assert_true(hasattr(wm, "uvlm_id_preset_0"), "WindowManager preset missing")
+    assert_true(hasattr(wm, "uvlm_material_replace_target"), "material replacement target property missing")
     assert_true(hasattr(mat, "uvlm_id_color"), "material ID color property unavailable")
     assert_true(scene.material_view_mode == "MATERIAL", "default material_view_mode mismatch")
 
@@ -188,6 +203,220 @@ def test_duplicate_material_organize():
     assert_true(obj.data.materials[0] == dup, "used independent material was replaced")
     assert_true(tuple(dup.diffuse_color) == (0.0, 0.0, 1.0, 1.0), "independent material color changed")
     assert_true(all(poly.material_index == 0 for poly in obj.data.polygons), "polygon material indices not remapped")
+
+
+def test_exact_material_replacement():
+    reset_scene()
+    source = bpy.data.materials.new("UVLM_Replace_Source")
+    same_family = bpy.data.materials.new("UVLM_Replace_Source.001")
+    target = bpy.data.materials.new("UVLM_Replace_Target")
+
+    first = create_cube("UVLM_Replace_A")
+    second = create_cube("UVLM_Replace_B", location=(3, 0, 0))
+    unselected = create_cube("UVLM_Replace_Unselected", location=(6, 0, 0))
+    first.data.materials.append(source)
+    first.data.materials.append(same_family)
+    first.data.materials.append(source)
+    second.data.materials.append(source)
+    second.material_slots[0].link = "OBJECT"
+    second.material_slots[0].material = source
+    unselected.data.materials.append(source)
+    for index, polygon in enumerate(first.data.polygons):
+        polygon.material_index = index % 3
+    first_indices = tuple(polygon.material_index for polygon in first.data.polygons)
+    first_uvs = tuple(tuple(loop.uv) for loop in first.data.uv_layers.active.data)
+
+    select_objects([first, second], active=first)
+    selected_before = {obj.as_pointer() for obj in bpy.context.selected_objects}
+    active_before = bpy.context.view_layer.objects.active
+    bpy.context.window_manager.uvlm_material_replace_target = target
+    result = bpy.ops.uv_layer_manager.replace_material(
+        source_material_name=source.name,
+        source_library_path="",
+    )
+    assert_true(result == {"FINISHED"}, f"replace_material returned {result}")
+    assert_true(list(first.data.materials) == [target, same_family, target], "source slots were not all replaced exactly")
+    assert_true(second.material_slots[0].material == target, "OBJECT-linked material slot was not replaced")
+    assert_true(second.material_slots[0].link == "OBJECT", "material slot link mode changed")
+    assert_true(list(unselected.data.materials) == [source], "unselected object was modified")
+    assert_true(tuple(polygon.material_index for polygon in first.data.polygons) == first_indices, "face material indices changed")
+    assert_true(tuple(tuple(loop.uv) for loop in first.data.uv_layers.active.data) == first_uvs, "UV data changed")
+    assert_true({obj.as_pointer() for obj in bpy.context.selected_objects} == selected_before, "object selection changed")
+    assert_true(bpy.context.view_layer.objects.active == active_before, "active object changed")
+    assert_true(bpy.context.window_manager.uvlm_material_replace_target is None, "temporary target pointer was not cleared")
+
+    bpy.context.window_manager.uvlm_material_replace_target = source
+    result = bpy.ops.uv_layer_manager.replace_material(
+        source_material_name=source.name,
+        source_library_path="",
+    )
+    assert_true(result == {"CANCELLED"}, f"same-material replacement returned {result}")
+    assert_true(bpy.context.window_manager.uvlm_material_replace_target is None, "same-target cancellation leaked target pointer")
+
+    result = bpy.ops.uv_layer_manager.replace_material(
+        source_material_name=source.name,
+        source_library_path="",
+    )
+    assert_true(result == {"CANCELLED"}, f"empty-target replacement returned {result}")
+
+    missing = bpy.data.materials.new("UVLM_Replace_Missing")
+    bpy.context.window_manager.uvlm_material_replace_target = target
+    result = bpy.ops.uv_layer_manager.replace_material(
+        source_material_name=missing.name,
+        source_library_path="",
+    )
+    assert_true(result == {"CANCELLED"}, f"no-match replacement returned {result}")
+
+
+def test_select_exact_material_faces():
+    reset_scene()
+    source = bpy.data.materials.new("UVLM_SelectFaces")
+    same_family = bpy.data.materials.new("UVLM_SelectFaces.001")
+    missing = bpy.data.materials.new("UVLM_SelectFaces_Missing")
+    first = create_cube("UVLM_SelectFaces_A")
+    second = create_cube("UVLM_SelectFaces_B", location=(3, 0, 0))
+    unselected = create_cube("UVLM_SelectFaces_Unselected", location=(6, 0, 0))
+    for obj in (first, second, unselected):
+        obj.data.materials.append(source)
+        obj.data.materials.append(same_family)
+    expected_first = {0, 2, 4}
+    expected_second = {1, 3, 5}
+    for polygon in first.data.polygons:
+        polygon.material_index = 0 if polygon.index in expected_first else 1
+        polygon.select = True
+    for polygon in second.data.polygons:
+        polygon.material_index = 0 if polygon.index in expected_second else 1
+        polygon.select = True
+    for polygon in unselected.data.polygons:
+        polygon.material_index = 0
+        polygon.select = False
+
+    select_objects([first, second], active=second)
+    selected_before = {obj.as_pointer() for obj in bpy.context.selected_objects}
+    result = bpy.ops.uv_layer_manager.select_material_faces(
+        material_name=source.name,
+        material_library_path="",
+    )
+    assert_true(result == {"FINISHED"}, f"object-mode face selection returned {result}")
+    assert_true(first.mode == "EDIT" and second.mode == "EDIT", "selected meshes did not enter multi-object Edit Mode")
+    assert_true(tuple(bpy.context.tool_settings.mesh_select_mode) == (False, False, True), "face select mode was not enabled")
+    assert_true(bpy.context.view_layer.objects.active in (first, second), "a matching object was not made active")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    assert_true(selected_polygon_indices(first.data) == expected_first, "first object selected wrong material faces")
+    assert_true(selected_polygon_indices(second.data) == expected_second, "second object selected wrong material faces")
+    assert_true(not selected_polygon_indices(unselected.data), "unselected object faces were modified")
+    assert_true({obj.as_pointer() for obj in bpy.context.selected_objects} == selected_before, "selected object set changed")
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    result = bpy.ops.uv_layer_manager.select_material_faces(
+        material_name=source.name,
+        material_library_path="",
+    )
+    assert_true(result == {"FINISHED"}, f"edit-mode face selection returned {result}")
+    assert_true(first.mode == "EDIT" and second.mode == "EDIT", "Edit Mode was not preserved")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    assert_true(selected_polygon_indices(first.data) == expected_first, "edit-mode first selection mismatch")
+    assert_true(selected_polygon_indices(second.data) == expected_second, "edit-mode second selection mismatch")
+
+    for obj in (first, second):
+        for polygon in obj.data.polygons:
+            polygon.select = True
+    result = bpy.ops.uv_layer_manager.select_material_faces(
+        material_name=missing.name,
+        material_library_path="",
+    )
+    assert_true(result == {"FINISHED"}, f"no-match face selection returned {result}")
+    assert_true(first.mode == "OBJECT" and second.mode == "OBJECT", "no-match selection changed mode")
+    assert_true(not selected_polygon_indices(first.data) and not selected_polygon_indices(second.data), "no-match selection did not clear prior faces")
+
+    from uv_layer_manager_pro import utils as U
+
+    linked = bpy.data.objects.new("UVLM_SelectFaces_Linked", first.data)
+    bpy.context.collection.objects.link(linked)
+    select_objects([first, linked], active=first)
+    selected_faces, matched_objects = U.select_material_faces(
+        bpy.context,
+        [first, linked],
+        source,
+    )
+    assert_true(selected_faces == len(expected_first), "shared Mesh faces were counted more than once")
+    assert_true(matched_objects == 2, "shared Mesh matching object count is incorrect")
+    if bpy.ops.object.mode_set.poll():
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def test_safe_unused_duplicate_material_cleanup():
+    reset_scene()
+    from uv_layer_manager_pro import utils as U
+
+    base = bpy.data.materials.new("UVLM_Purge")
+    transient = bpy.data.materials.new("UVLM_Purge.001")
+    orphan = bpy.data.materials.new("UVLM_Purge.002")
+    single = bpy.data.materials.new("UVLM_PurgeSingle.001")
+    pair_first = bpy.data.materials.new("UVLM_PurgePair.001")
+    pair_second = bpy.data.materials.new("UVLM_PurgePair.002")
+    transient_name = transient.name
+    orphan_name = orphan.name
+    pair_first_name = pair_first.name
+    pair_second_name = pair_second.name
+
+    used_base = bpy.data.materials.new("UVLM_PurgeUsed")
+    used_duplicate = bpy.data.materials.new("UVLM_PurgeUsed.001")
+    orphan_mesh = bpy.data.meshes.new("UVLM_PurgeOrphanMesh")
+    orphan_mesh.materials.append(used_duplicate)
+
+    fake_base = bpy.data.materials.new("UVLM_PurgeFake")
+    fake_duplicate = bpy.data.materials.new("UVLM_PurgeFake.001")
+    fake_duplicate.use_fake_user = True
+
+    asset_base = bpy.data.materials.new("UVLM_PurgeAsset")
+    asset_duplicate = bpy.data.materials.new("UVLM_PurgeAsset.001")
+    asset_duplicate.asset_mark()
+
+    obj = create_cube("UVLM_PurgeObject")
+    obj.data.materials.append(base)
+    select_objects([obj], active=obj)
+    bpy.context.scene.material_manager_material = transient
+    bpy.context.window_manager.uvlm_material_replace_target = transient
+    result = bpy.ops.uv_layer_manager.clear_material_slots()
+    assert_true(result == {"FINISHED"}, f"clear_material_slots cleanup returned {result}")
+    remaining = {material.name for material in bpy.data.materials}
+    assert_true(transient_name not in remaining and orphan_name not in remaining, "unused base-family suffixes were not deleted")
+    assert_true(pair_first_name not in remaining and pair_second_name not in remaining, "suffix-only duplicate family was not deleted")
+    assert_true(single.name in remaining, "unconfirmed standalone .001 material was deleted")
+    assert_true(used_duplicate.name in remaining, "material referenced by another datablock was deleted")
+    assert_true(fake_duplicate.name in remaining, "Fake User material was deleted")
+    assert_true(asset_duplicate.name in remaining, "asset material was deleted")
+    assert_true(bpy.context.scene.material_manager_material is None, "scene transient material pointer was not cleared")
+    assert_true(bpy.context.window_manager.uvlm_material_replace_target is None, "window-manager transient pointer was not cleared")
+
+    organize_base = bpy.data.materials.new("UVLM_OrganizePurge")
+    organize_orphan = bpy.data.materials.new("UVLM_OrganizePurge.001")
+    organize_orphan_name = organize_orphan.name
+    obj.data.materials.append(organize_base)
+    for polygon in obj.data.polygons:
+        polygon.material_index = 0
+    result = bpy.ops.uv_layer_manager.organize_materials()
+    assert_true(result == {"FINISHED"}, f"organize_materials cleanup returned {result}")
+    assert_true(organize_orphan_name not in {material.name for material in bpy.data.materials}, "organize entry did not purge orphan duplicate")
+
+    library_material = bpy.data.materials.new("UVLM_LinkedProtected.001")
+    library_path = os.path.join(tempfile.gettempdir(), "uvlm_material_cleanup_library.blend")
+    try:
+        bpy.data.libraries.write(library_path, {library_material})
+        bpy.data.materials.remove(library_material)
+        with bpy.data.libraries.load(library_path, link=True) as (data_from, data_to):
+            data_to.materials = [name for name in data_from.materials if name == "UVLM_LinkedProtected.001"]
+        linked = data_to.materials[0]
+        assert_true(linked is not None and linked.library is not None, "linked material test setup failed")
+        U.purge_unused_duplicate_materials(bpy.context)
+        assert_true(linked.name in {material.name for material in bpy.data.materials}, "linked-library material was deleted")
+    finally:
+        linked = bpy.data.materials.get("UVLM_LinkedProtected.001")
+        if linked is not None:
+            bpy.data.materials.remove(linked, do_unlink=True)
+        if os.path.exists(library_path):
+            os.remove(library_path)
 
 
 def test_material_display_groups():
@@ -456,6 +685,9 @@ def main():
         test_material_ops,
         test_multi_object_shared_material_remove,
         test_duplicate_material_organize,
+        test_exact_material_replacement,
+        test_select_exact_material_faces,
+        test_safe_unused_duplicate_material_cleanup,
         test_material_display_groups,
         test_material_swatch_palette,
         test_material_view_round_trip,

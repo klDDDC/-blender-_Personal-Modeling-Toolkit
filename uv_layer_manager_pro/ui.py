@@ -63,10 +63,14 @@ class UV_LAYER_MANAGER_UL_material_slots(bpy.types.UIList):
                 icon_value = 0
             name_row = item_col.row(align=True)
             name_row.scale_y = 1.05
-            name_row.label(
+            swatch = name_row.operator(
+                "uv_layer_manager.replace_material",
                 text="",
                 icon_value=icon_value,
+                emboss=False,
             )
+            swatch.source_material_name = material.name
+            swatch.source_library_path = U.get_material_library_path(material)
             name_row.prop(material, "name", text="", emboss=False)
         else:
             empty_row = item_col.row(align=True)
@@ -275,6 +279,22 @@ def draw_modeling_tools_section(layout, context):
         if selected_mesh_count == 0:
             rotate_cell.enabled = False
 
+        straighten_cell = tools.row(align=True)
+        straighten_cell.scale_y = 1.25
+        straighten_split = straighten_cell.split(factor=0.82, align=True)
+        straighten_main = straighten_split.row(align=True)
+        straighten_main.operator(
+            "uv_layer_manager.straighten_vertices",
+            text="斜向拉直",
+            icon='MOD_LATTICE',
+        )
+        straighten_settings = straighten_split.row(align=True)
+        straighten_settings.operator(
+            "uv_layer_manager.set_straighten_direction",
+            text="",
+            icon='PREFERENCES',
+        )
+
         ngon_cell = tools.row(align=True)
         ngon_cell.scale_y = 1.25
         ngon_cell.operator("uv_layer_manager.select_ngons", text="大于4边面", icon='SNAP_FACE')
@@ -374,7 +394,14 @@ def draw_material_management_section(layout, context):
                         group_icon = MID.get_material_swatch_icon(mat)
                     except Exception:
                         group_icon = 0
-                    name_row.label(text="", icon_value=group_icon)
+                    swatch = name_row.operator(
+                        "uv_layer_manager.replace_material",
+                        text="",
+                        icon_value=group_icon,
+                        emboss=False,
+                    )
+                    swatch.source_material_name = mat.name
+                    swatch.source_library_path = U.get_material_library_path(mat)
                     name_row.prop(mat, "name", text="", emboss=False)
                     op_remove = name_row.operator("uv_layer_manager.remove_material_by_name", text="", icon='X', emboss=False)
                     op_remove.material_name = mat.name
@@ -388,7 +415,14 @@ def draw_material_management_section(layout, context):
                             member_icon = MID.get_material_swatch_icon(mat)
                         except Exception:
                             member_icon = 0
-                        member_row.label(text="", icon_value=member_icon)
+                        swatch = member_row.operator(
+                            "uv_layer_manager.replace_material",
+                            text="",
+                            icon_value=member_icon,
+                            emboss=False,
+                        )
+                        swatch.source_material_name = mat.name
+                        swatch.source_library_path = U.get_material_library_path(mat)
                         member_row.prop(mat, "name", text="", emboss=False)
                         member_row.label(text=f"{member['object_count']}物体/{member['slot_count']}槽")
                         op_remove = member_row.operator(
@@ -496,6 +530,15 @@ def draw_shortcut_section(layout, context):
             row = col.row(align=True)
             row.label(text=label)
             SH.draw_shortcut_keymap_item(row, context, keymap, item)
+
+        col.separator()
+        save_row = col.row(align=True)
+        save_row.scale_y = 1.1
+        save_row.operator("uv_layer_manager.save_shortcuts", icon='FILE_TICK')
+        save_row.operator("uv_layer_manager.reset_shortcuts", text="", icon='X')
+        status_text, status_icon = SH.get_shortcut_save_status()
+        status = col.row(align=True)
+        status.label(text=status_text, icon=status_icon)
     except Exception as e:
         layout.label(text=f"快捷键UI错误: {str(e)[:40]}", icon='ERROR')
 
@@ -690,3 +733,12 @@ class UV_LAYER_MANAGER_MT_shortcut_menu(bpy.types.Menu):
 
 def draw_uv_layer_manager_shortcut_menu(self, context):
     self.layout.menu("UV_LAYER_MANAGER_MT_shortcut_menu", icon='UV')
+
+
+def draw_uv_layer_manager_edit_mesh_menu(self, context):
+    self.layout.separator()
+    self.layout.operator(
+        "uv_layer_manager.straighten_vertices",
+        text="斜向拉直",
+        icon='MOD_LATTICE',
+    )

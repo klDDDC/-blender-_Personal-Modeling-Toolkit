@@ -249,21 +249,26 @@ def configure_editor_area(area, kind):
 
 
 def get_layout_areas_after_split(screen, original_area, previous_pointers):
+    """返回 (新分割出的区域, 原区域)。
+
+    不能按 area.x 排序：area_split 后新区域的坐标尚未更新，
+    排序结果不稳定，可能把原区域误当成新区域。
+    """
     new_areas = [area for area in screen.areas if area.as_pointer() not in previous_pointers]
     if not new_areas:
         return None, None
-    split_areas = [original_area, new_areas[-1]]
-    sorted_areas = sorted(split_areas, key=lambda area: area.x)
-    return sorted_areas[0], sorted_areas[-1]
+    return new_areas[-1], original_area
 
 
 def get_fixed_editor_layout_areas_after_split(screen, original_area, previous_pointers):
+    """返回 (编辑器区域=新分割区域, 3D视图区域=原区域)。
+
+    保证原 3D 视图不被转换，新分割出的区域作为 UV/着色器编辑器。
+    """
     new_areas = [area for area in screen.areas if area.as_pointer() not in previous_pointers]
     if not new_areas:
         return None, None
-    split_areas = [original_area, new_areas[-1]]
-    sorted_by_x = sorted(split_areas, key=lambda area: area.x)
-    return sorted_by_x[0], sorted_by_x[-1]
+    return new_areas[-1], original_area
 
 
 # ============================================================

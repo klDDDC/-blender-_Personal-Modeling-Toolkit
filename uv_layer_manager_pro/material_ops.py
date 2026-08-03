@@ -361,6 +361,137 @@ class UV_LAYER_MANAGER_OT_edit_material_id_color_for_target(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class UV_LAYER_MANAGER_OT_replace_material(bpy.types.Operator):
+    bl_idname = "uv_layer_manager.replace_material"
+    bl_label = "材质操作"
+    bl_description = "将选中模型中的当前材质替换为另一个材质"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    source_material_name: bpy.props.StringProperty(default="")
+    source_library_path: bpy.props.StringProperty(default="")
+
+    @classmethod
+    def poll(cls, context):
+        return bool(U.get_selected_mesh_objects(context))
+
+    def _source_material(self):
+        return U.find_material(self.source_material_name, self.source_library_path)
+
+    def invoke(self, context, event):
+        source_material = self._source_material()
+        if source_material is None:
+            self.report({'WARNING'}, "源材质已不存在")
+            return {'CANCELLED'}
+        U.clear_material_replace_target(context)
+        return context.window_manager.invoke_props_dialog(
+            self,
+            width=420,
+            title="材质操作",
+            confirm_text="替换",
+        )
+
+    def draw(self, context):
+        layout = self.layout
+        source_material = self._source_material()
+        source_row = layout.row(align=True)
+        try:
+            source_icon = MID.get_material_swatch_icon(source_material) if source_material else 0
+        except Exception:
+            source_icon = 0
+        source_row.label(text="", icon_value=source_icon)
+        source_row.label(
+            text=f"当前材质：{source_material.name}" if source_material else "当前材质已不存在",
+        )
+
+        select_operator = layout.operator(
+            "uv_layer_manager.select_material_faces",
+            text="选中该材质的所有面",
+            icon='FACESEL',
+        )
+        select_operator.material_name = self.source_material_name
+        select_operator.material_library_path = self.source_library_path
+
+        layout.separator()
+        layout.prop_search(
+            context.window_manager,
+            "uvlm_material_replace_target",
+            bpy.data,
+            "materials",
+            text="替换为",
+        )
+
+    def execute(self, context):
+        window_manager = context.window_manager
+        target_material = getattr(window_manager, "uvlm_material_replace_target", None)
+        try:
+            source_material = self._source_material()
+            if source_material is None:
+                self.report({'WARNING'}, "源材质已不存在")
+                return {'CANCELLED'}
+            if target_material is None:
+                self.report({'WARNING'}, "请选择替换后的材质")
+                return {'CANCELLED'}
+            if U.is_same_material(source_material, target_material):
+                self.report({'INFO'}, "源材质和目标材质相同，未进行替换")
+                return {'CANCELLED'}
+
+            replaced_slots, changed_objects = U.replace_material_slots(
+                U.get_selected_mesh_objects(context),
+                source_material,
+                target_material,
+            )
+            if not replaced_slots:
+                self.report({'WARNING'}, "选中模型中没有使用该源材质的槽")
+                return {'CANCELLED'}
+
+            L.tag_all_view3d_redraw()
+            self.report(
+                {'INFO'},
+                f"已在 {changed_objects} 个模型中替换 {replaced_slots} 个材质槽",
+            )
+            return {'FINISHED'}
+        finally:
+            U.clear_material_replace_target(context)
+
+    def cancel(self, context):
+        U.clear_material_replace_target(context)
+
+
+class UV_LAYER_MANAGER_OT_select_material_faces(bpy.types.Operator):
+    bl_idname = "uv_layer_manager.select_material_faces"
+    bl_label = "选中材质的所有面"
+    bl_description = "在当前选中的所有网格模型中选择使用该材质的面"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    material_name: bpy.props.StringProperty(default="")
+    material_library_path: bpy.props.StringProperty(default="")
+
+    @classmethod
+    def poll(cls, context):
+        return bool(U.get_selected_mesh_objects(context))
+
+    def execute(self, context):
+        material = U.find_material(self.material_name, self.material_library_path)
+        if material is None:
+            self.report({'WARNING'}, "材质已不存在")
+            return {'CANCELLED'}
+
+        selected_faces, matched_objects = U.select_material_faces(
+            context,
+            U.get_selected_mesh_objects(context),
+            material,
+        )
+        L.tag_all_view3d_redraw()
+        if not selected_faces:
+            self.report({'INFO'}, "选中模型中没有使用该材质的面")
+            return {'FINISHED'}
+        self.report(
+            {'INFO'},
+            f"已在 {matched_objects} 个模型中选中 {selected_faces} 个面",
+        )
+        return {'FINISHED'}
+
+
 class UV_LAYER_MANAGER_OT_clear_material_slots(bpy.types.Operator):
     bl_idname = "uv_layer_manager.clear_material_slots"
     bl_label = "清除材质槽"
@@ -372,10 +503,23 @@ class UV_LAYER_MANAGER_OT_clear_material_slots(bpy.types.Operator):
         return len(U.get_selected_mesh_objects(context)) > 0
 
     def execute(self, context):
-        for obj in U.get_selected_mesh_objects(context):
+        objects = U.get_selected_mesh_objects(context)
+        cleared_slots = 0
+        processed_meshes = set()
+        for obj in objects:
+            mesh_pointer = obj.data.as_pointer()
+            if mesh_pointer in processed_meshes:
+                continue
+            processed_meshes.add(mesh_pointer)
+            cleared_slots += len(obj.data.materials)
             obj.data.materials.clear()
             obj.data.update()
-        self.report({'INFO'}, "已清除材质槽")
+        deleted_materials = U.purge_unused_duplicate_materials(context)
+        U.invalidate_duplicate_material_cache()
+        self.report(
+            {'INFO'},
+            f"已清除 {cleared_slots} 个材质槽，删除 {deleted_materials} 个未使用重复材质",
+        )
         return {'FINISHED'}
 
 
@@ -400,21 +544,27 @@ class UV_LAYER_MANAGER_OT_clean_unused_material_slots(bpy.types.Operator):
 class UV_LAYER_MANAGER_OT_merge_duplicate_materials(bpy.types.Operator):
     bl_idname = "uv_layer_manager.merge_duplicate_materials"
     bl_label = "合并重复材质"
-    bl_description = "合并场景中同名的重复材质"
+    bl_description = "合并选中模型中指向同一个材质数据块的重复材质槽"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        merged = 0
+        merged_slots = 0
+        processed_meshes = set()
         for obj in U.get_selected_mesh_objects(context):
-            merged += U.merge_duplicate_material_slots(obj)
-        self.report({'INFO'}, f"合并了 {merged} 个重复材质槽")
+            mesh_pointer = obj.data.as_pointer()
+            if mesh_pointer in processed_meshes:
+                continue
+            processed_meshes.add(mesh_pointer)
+            merged_slots += U.merge_duplicate_material_slots(obj)
+        U.invalidate_duplicate_material_cache()
+        self.report({'INFO'}, f"合并了 {merged_slots} 个重复材质槽")
         return {'FINISHED'}
 
 
 class UV_LAYER_MANAGER_OT_organize_materials(bpy.types.Operator):
     bl_idname = "uv_layer_manager.organize_materials"
     bl_label = "整理材质"
-    bl_description = "安全清理选中模型的未使用材质槽和重复材质槽，不删除材质数据"
+    bl_description = "清理选中模型的未使用/重复材质槽，并删除全文件中真正未使用的数字后缀重复材质"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -424,14 +574,21 @@ class UV_LAYER_MANAGER_OT_organize_materials(bpy.types.Operator):
     def execute(self, context):
         removed_slots = 0
         merged_slots = 0
+        processed_meshes = set()
         for obj in U.get_selected_mesh_objects(context):
+            mesh_pointer = obj.data.as_pointer()
+            if mesh_pointer in processed_meshes:
+                continue
+            processed_meshes.add(mesh_pointer)
             removed_slots += U.remove_unused_material_slots(obj)
             merged_slots += U.merge_duplicate_material_slots(obj)
             removed_slots += U.remove_unused_material_slots(obj)
+        deleted_materials = U.purge_unused_duplicate_materials(context)
         U.invalidate_duplicate_material_cache()
         self.report(
             {'INFO'},
-            f"安全清理完成：移除 {removed_slots} 个未使用槽，合并 {merged_slots} 个重复槽",
+            f"安全清理完成：移除 {removed_slots} 个未使用槽，"
+            f"合并 {merged_slots} 个重复槽，删除 {deleted_materials} 个未使用重复材质",
         )
         return {'FINISHED'}
 
@@ -495,6 +652,11 @@ class UV_LAYER_MANAGER_OT_set_color_attribute(bpy.types.Operator):
 # ============================================================
 
 def register_properties():
+    bpy.types.WindowManager.uvlm_material_replace_target = bpy.props.PointerProperty(
+        name="替换材质",
+        description="材质操作弹窗中临时选择的目标材质",
+        type=bpy.types.Material,
+    )
     bpy.types.Scene.material_manager_material = bpy.props.PointerProperty(
         name="材质",
         description="材质管理工具使用的目标材质",
@@ -514,6 +676,9 @@ def register_properties():
 
 
 def unregister_properties():
+    U.clear_material_replace_target()
+    if hasattr(bpy.types.WindowManager, 'uvlm_material_replace_target'):
+        del bpy.types.WindowManager.uvlm_material_replace_target
     if hasattr(bpy.types.Scene, 'material_manager_material'):
         del bpy.types.Scene.material_manager_material
     if hasattr(bpy.types.Scene, 'material_view_mode'):
