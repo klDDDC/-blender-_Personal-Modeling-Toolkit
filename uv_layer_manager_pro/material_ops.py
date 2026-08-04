@@ -564,7 +564,7 @@ class UV_LAYER_MANAGER_OT_merge_duplicate_materials(bpy.types.Operator):
 class UV_LAYER_MANAGER_OT_organize_materials(bpy.types.Operator):
     bl_idname = "uv_layer_manager.organize_materials"
     bl_label = "整理材质"
-    bl_description = "清理选中模型的未使用/重复材质槽，并删除全文件中真正未使用的数字后缀重复材质"
+    bl_description = "清理选中模型的未使用/重复材质槽，场景级统一同名族材质（Material.001 -> Material）并删除多余副本（链接库与 Asset 除外）"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -583,12 +583,15 @@ class UV_LAYER_MANAGER_OT_organize_materials(bpy.types.Operator):
             removed_slots += U.remove_unused_material_slots(obj)
             merged_slots += U.merge_duplicate_material_slots(obj)
             removed_slots += U.remove_unused_material_slots(obj)
+        unified_slots, family_merged_slots, deleted_family = U.unify_named_material_families(context)
         deleted_materials = U.purge_unused_duplicate_materials(context)
         U.invalidate_duplicate_material_cache()
         self.report(
             {'INFO'},
             f"安全清理完成：移除 {removed_slots} 个未使用槽，"
-            f"合并 {merged_slots} 个重复槽，删除 {deleted_materials} 个未使用重复材质",
+            f"合并 {merged_slots + family_merged_slots} 个重复槽，"
+            f"统一 {unified_slots} 个同名族槽，"
+            f"删除 {deleted_family + deleted_materials} 个重复材质",
         )
         return {'FINISHED'}
 

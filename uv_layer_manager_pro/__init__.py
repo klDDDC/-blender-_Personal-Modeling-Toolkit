@@ -3,7 +3,7 @@
 bl_info = {
     "name": "UV Layer Manager Pro",
     "author": "Developer",
-    "version": (1, 8, 0),
+    "version": (1, 8, 1),
     "blender": (4, 1, 0),
     "location": "View3D > Sidebar > UV",
     "description": "管理模型的UV层，支持添加、删除、复制和同步UV层",

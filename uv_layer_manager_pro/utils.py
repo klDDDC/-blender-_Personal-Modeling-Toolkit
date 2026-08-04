@@ -684,8 +684,81 @@ def invalidate_duplicate_material_cache():
 
 
 def unify_duplicate_materials(context=None):
-    """Compatibility wrapper that no longer remaps materials by name."""
-    return 0, 0, purge_unused_duplicate_materials(context)
+    """Compatibility wrapper delegating to the named-family unification."""
+    return unify_named_material_families(context)
+
+
+def unify_named_material_families(context=None):
+    """全文件同名族材质统一：Material.001/002 -> Material。
+
+    - 以去掉 .001/.002 等数字后缀的基础名分组（仅本地材质）；
+    - 每组保留“无后缀基础名”材质（找不到时取名字最短者）为唯一材质；
+    - 所有网格的材质槽（无论物体是否选中）引用重复材质时重定向到唯一材质；
+    - 重定向后合并所有网格中指向同一材质的重复槽位；
+    - 删除重复材质（含假用户或已赋给物体的），链接库材质不参与，Asset 材质只重定向不删除。
+    返回 (重定向槽位数, 合并槽位数, 删除材质数)。
+    """
+    local_materials = [
+        material
+        for material in bpy.data.materials
+        if getattr(material, "library", None) is None
+    ]
+    groups = {}
+    for material in local_materials:
+        groups.setdefault(get_material_base_name(material.name), []).append(material)
+
+    dup_map = {}
+    for base_name, materials in groups.items():
+        if len(materials) < 2:
+            continue
+        canonical = None
+        for material in materials:
+            if material.name == base_name:
+                canonical = material
+                break
+        if canonical is None:
+            canonical = sorted(materials, key=lambda item: (len(item.name), item.name))[0]
+        for material in materials:
+            if material != canonical:
+                dup_map[material] = canonical
+
+    if not dup_map:
+        return 0, 0, 0
+
+    remapped_slots = 0
+    for mesh in bpy.data.meshes:
+        for index, material in enumerate(mesh.materials):
+            canonical = dup_map.get(material)
+            if canonical is not None:
+                try:
+                    mesh.materials[index] = canonical
+                except Exception:
+                    continue
+                remapped_slots += 1
+
+    merged_slots = 0
+    for mesh in bpy.data.meshes:
+        merged_slots += _merge_duplicate_material_slots(mesh)
+
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH' and obj.data is not None:
+            slot_count = len(obj.data.materials)
+            if obj.active_material_index >= slot_count:
+                obj.active_material_index = max(0, slot_count - 1)
+
+    deleted = 0
+    for material in list(dup_map):
+        if getattr(material, "asset_data", None) is not None:
+            continue
+        try:
+            bpy.data.materials.remove(material)
+            deleted += 1
+        except (ReferenceError, RuntimeError, TypeError):
+            pass
+
+    invalidate_duplicate_material_cache()
+    C._draw_cache.clear()
+    return remapped_slots, merged_slots, deleted
 
 
 def set_material_color_view(context):
